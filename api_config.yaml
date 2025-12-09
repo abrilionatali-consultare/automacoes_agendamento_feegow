@@ -1,0 +1,41 @@
+version: 1
+
+globals:
+  concurrency: 5
+  timeout_seconds: 15
+  retries: 5
+  backoff_factor: 1  
+  headers:
+    Content-Type: "application/json"
+  auth:
+    type: env_header
+    env_var: FEEGOW_ACCESS_TOKEN
+    header_name: x-access-token
+
+
+endpoints:
+  - name: appointments
+    description: "Extração de agendamentos"
+    url: "https://api.feegow.com/v1/api/appoints/search"
+    method: "GET"
+    needs_body: true            # Indica se precisa de parâmetros para requisição
+    use_post_for_body: false    # Se true, fará POST os invés de GET
+    body_template:
+     data_start: "{data_start}"
+     data_end: "{data_end}"
+     list_procedures: 0   
+
+  - name: list-local
+    description: "Extração de salas e seus IDs"
+    url: "https://api.feegow.com/v1/api/company/list-local"
+    method: "GET"
+
+  - name: list-professional
+    description: "Extração de nome dos profissionais"
+    url: "https://api.feegow.com/v1/api/professional/list"
+    method: "GET"
+
+  - name: list-specialties
+    description: "Extração das especialidades"
+    url: "https://api.feegow.com/v1/api/specialties/list"
+    method: "GET"

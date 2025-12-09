@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Mapa de Salas - {{ unidade }}</title>
+
+<style>
+  /* IMPRESSÃO */
+  @page { size: A4 landscape; margin: 6mm; }
+
+  html, body { font-family: "DejaVu Sans", Arial, sans-serif; color: #111; }
+  body { margin: 0; padding: 6mm; font-size: 12px; }
+
+  header.report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .report-title { font-size: 20px; font-weight: 700; color: #053F74; }
+  .report-meta { text-align: right; font-size: 10px; color: #333; }
+  .unit-line { font-size: 13px; font-weight: 600; color: #053F74; }
+
+  /* OCUPAÇÃO SUPERIOR */
+  .occupancy-row { display:flex; gap: 12px; margin-bottom: 14px; align-items: center; }
+  .occ-item { font-size: 10px; color:#333; }
+  .occ-bar { height: 8px; background: #e9ecef; border-radius: 4px; width: 130px; overflow: hidden; }
+  .occ-fill { height: 100%; background: linear-gradient(90deg, #229A8A, #259D89); }
+
+  .section-title { margin-top: 6px; margin-bottom: 6px; font-size: 14px; font-weight: 700; color: #259D89; }
+
+  table.schedule-2col {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed; /* fix widths so rows/columns alinhem entre manhã e tarde */
+    margin-bottom: 16px;
+    border: 1px solid #ccc;
+  }
+
+  /* células: garante quebra e comportamento esperado */
+  table.schedule-2col th,
+  table.schedule-2col td {
+    border: 1px solid #ccc;
+    padding: 6px 4px;
+    vertical-align: top;
+    text-align: center;
+    word-break: break-word;
+    white-space: normal;
+    overflow-wrap: anywhere;   /* quebra em pontos possíveis */
+    box-sizing: border-box;
+  }
+
+  table.schedule-2col thead tr.top th {
+    background: #053F74; font-weight: 700; font-size: 12px; color: white; text-align: center;
+  }
+  table.schedule-2col thead tr.days th {
+    background: #259D89; font-weight: 700; font-size: 11px; color: white; text-align: center;
+  }
+
+  .sala-cell {
+    background: #053F74; color: white; font-weight: 700;
+    font-size: {{ (cell_font_size_px|default(10) + 1) }}px;
+    text-align: left; white-space: normal; word-break: break-word; padding-left: 8px;
+  }
+
+  .matrix-cell {
+    font-size: {{ cell_font_size_px|default(10) }}px;
+    line-height: 1.25;
+    background: #f5f5f5;
+    box-shadow: inset 2px 2px 6px rgba(0,0,0,0.10);
+    border: 1px solid #ddd;
+    min-height: 28px;
+    text-align: left;
+    padding: 4px;
+
+    /* regras para evitar overflow / permitir quebra */
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+    box-sizing: border-box;
+  }
+
+  /* garante que elementos internos também quebrem (se format_cell gerar spans/divs inline) */
+  .matrix-cell * {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    hyphens: auto !important;
+    max-width: 100% !important; /* evita imagens/elementos internos extrapolarem */
+    box-sizing: border-box !important;
+  }
+
+  .matrix-cell.filled {
+    background: #3FBD80 !important;
+    box-shadow: none;
+    color: #fff;
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+
+  th.split, td.split { border-left: 3px solid #bdbdbd; padding-left: 10px; }
+
+  .occ-row th {
+    color: white; font-weight: 700; background: #053F74; text-align: center; padding: 6px;
+  }
+  .occ-row td { background: transparent; color: #111; padding: 6px; vertical-align: middle; }
+
+  .occ-bar.small { height: 8px; background: #e9ecef; border-radius: 4px; width: 100%; overflow: hidden; margin-top: 4px; }
+  .occ-fill.small { height: 100%; background: linear-gradient(90deg, #229A8A, #259D89); }
+  .occ-footer-label { font-weight:700; font-size:11px; color:#053F74; }
+
+  footer.report-footer { margin-top: 10px; font-size: 9px; color: #666; text-align: right; }
+  .side-by-side-note { font-size: 11px; color:#444; margin-bottom:6px; }
+</style>
+</head>
+
+<body>
+
+<header class="report-header">
+  <div>
+    <div class="report-title">Mapa de Salas</div>
+    <div class="unit-line">{{ unidade }}</div>
+    <div style="font-size:11px;color:#444;">Período: <strong>{{ week_label }}</strong></div>
+  </div>
+  <div class="report-meta">
+    Gerado: {{ generated }}<br/>Fonte: Feegow - Agendamentos
+  </div>
+</header>
+
+<!-- OCUPAÇÃO SUPERIOR -->
+<section class="occupancy-row">
+  <div class="occ-item">Ocupação Manhã:</div>
+  <div class="occ-bar">
+    <div class="occ-fill" style="width: {{ occupancy['Manhã'][0] if occupancy['Manhã'] else 0 }}%;"></div>
+  </div>
+  <div style="width:10px"></div>
+  <div class="occ-item">Ocupação Tarde:</div>
+  <div class="occ-bar">
+    <div class="occ-fill" style="width: {{ occupancy['Tarde'][0] if occupancy['Tarde'] else 0 }}%;"></div>
+  </div>
+</section>
+
+<div class="section-title">Manhã e Tarde (lado a lado)</div>
+<div class="side-by-side-note">As colunas de sala permanecem alinhadas — Manhã à esquerda, Tarde à direita.</div>
+
+{% set mat = matrices['Manhã'] %}
+{% set mat2 = matrices['Tarde'] %}
+
+{% set left = mat.index|list if mat is not none else [] %}
+{% set right = mat2.index|list if mat2 is not none else [] %}
+{% set rooms = (left + right) | unique %}
+
+<table class="schedule-2col">
+  <colgroup>
+    <col style="width:12%;">
+    {% for d in day_names %}
+    <col style="width:{{ (44 / day_names|length) }}%;">
+    {% endfor %}
+    {% for d in day_names %}
+    <col style="width:{{ (44 / day_names|length) }}%;">
+    {% endfor %}
+  </colgroup>
+
+  <thead>
+    <tr class="top">
+    <th rowspan="2">Sala</th>
+    <th colspan="{{ day_names|length }}">Manhã</th>
+    <th colspan="{{ day_names|length }}">Tarde</th>
+    </tr>
+    <tr class="days">
+    {% for d in day_names %}<th>{{ d }}</th>{% endfor %}
+    {% for d in day_names %}<th{% if loop.first %} class="split"{% endif %}>{{ d }}</th>{% endfor %}
+    </tr>
+  </thead>
+
+  <tbody>
+  {% if rooms %}
+    {% for sala in rooms %}
+    <tr>
+    <td class="sala-cell">{{ sala }}</td>
+
+    {% for dia in day_names %}
+    {% set raw = mat.at[sala, dia] if mat is not none and sala in mat.index and dia in mat.columns else '' %}
+    <td class="matrix-cell {% if raw and raw|trim != '' %}filled{% endif %}">
+    {% if raw and raw|trim != '' %}{{ raw | format_cell | safe }}{% endif %}
+    </td>
+    {% endfor %}
+
+    {% for dia in day_names %}
+    {% set raw2 = mat2.at[sala, dia] if mat2 is not none and sala in mat2.index and dia in mat2.columns else '' %}
+    <td class="matrix-cell {% if raw2 and raw2|trim != '' %}filled{% endif %}{% if loop.first %} split{% endif %}">
+    {% if raw2 and raw2|trim != '' %}{{ raw2 | format_cell | safe }}{% endif %}
+    </td>
+    {% endfor %}
+
+    </tr>
+    {% endfor %}
+  {% else %}
+    <tr><td colspan="{{ 1 + (day_names|length * 2) }}">Sem dados para Manhã e Tarde</td></tr>
+  {% endif %}
+  </tbody>
+
+  <tfoot>
+    <tr class="occ-row">
+    <th>Ocupação</th>
+
+    {% for i in range(day_names|length) %}
+    {% set pct = occupancy['Manhã'][i] if occupancy['Manhã'] else 0 %}
+    <td class="occ-cell">
+    <div class="occ-footer-label">{{ pct }}%</div>
+    <div class="occ-bar small"><div class="occ-fill small" style="width: {{ pct }}%;"></div></div>
+    </td>
+    {% endfor %}
+
+    {% for i in range(day_names|length) %}
+    {% set pct2 = occupancy['Tarde'][i] if occupancy['Tarde'] else 0 %}
+    <td class="occ-cell{% if loop.first %} split{% endif %}">
+    <div class="occ-footer-label">{{ pct2 }}%</div>
+    <div class="occ-bar small"><div class="occ-fill small" style="width: {{ pct2 }}%;"></div></div>
+    </td>
+    {% endfor %}
+    </tr>
+  </tfoot>
+</table>
+
+<footer class="report-footer">Documento gerado automaticamente.</footer>
+
+</body>
+</html>
