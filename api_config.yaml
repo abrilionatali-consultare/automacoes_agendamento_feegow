@@ -39,3 +39,8 @@ endpoints:
     description: "Extração das especialidades"
     url: "https://api.feegow.com/v1/api/specialties/list"
     method: "GET"
+
+  - name: list-patients
+    description: "Extração dos pacientes"
+    url: "https://api.feegow.com/v1/api/patient/list"
+    method: "GET"

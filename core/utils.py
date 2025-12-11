@@ -209,16 +209,21 @@ def render_pdf_from_template(
     day_names,
     week_start_date,
     week_end_date,
-    template_path="map_template.html",
-    out_pdf_path="mapa_semana.pdf",
-    cell_font_size_px=10
+    template_path,
+    out_pdf_path=None,
+    cell_font_size_px=10,
+    return_bytes=False
 ):
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+    from weasyprint import HTML
+    from datetime import datetime
+
     env = Environment(
         loader=FileSystemLoader('.'),
         autoescape=select_autoescape(['html','xml'])
     )
 
-    # registra format_cell tanto como filtro quanto como global (evita UndefinedError)
+    # registra format_cell tanto como filtro quanto como global
     env.filters["format_cell"] = format_cell
     env.globals["format_cell"] = format_cell
 
@@ -237,7 +242,6 @@ def render_pdf_from_template(
 
     week_label = f"{start.strftime('%d/%m/%Y')} a {end.strftime('%d/%m/%Y')}"
 
-    # render com passagem explícita de format_cell no contexto (redundante, mas seguro)
     html = tpl.render(
         unidade=unidade,
         matrices=matrices,
@@ -249,9 +253,22 @@ def render_pdf_from_template(
         format_cell=format_cell
     )
 
+    # ➖➖➖➖➖➖➖
+    # Se quiser PDF em bytes (para o Streamlit)
+    # ➖➖➖➖➖➖➖
+    if return_bytes:
+        pdf_bytes = HTML(string=html).write_pdf()
+        return pdf_bytes
+
+    # ➖➖➖➖➖➖➖
+    # Se quiser salvar o PDF em arquivo
+    # ➖➖➖➖➖➖➖
+    if out_pdf_path is None:
+        raise ValueError("out_pdf_path é obrigatório quando return_bytes=False")
+
     HTML(string=html).write_pdf(out_pdf_path)
     print(f"PDF salvo em: {out_pdf_path}")
-
+    return out_pdf_path
 
 
 # ---------------- helper para input do usuário ----------------

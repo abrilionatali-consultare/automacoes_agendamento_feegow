@@ -1,1 +1,6 @@
 .env
+api_config.yaml
+auth/users.json
+mapas_gerados/
+generate_users.py
+gerar_mapa_mensal.py
