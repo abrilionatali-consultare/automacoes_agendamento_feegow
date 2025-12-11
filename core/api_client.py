@@ -12,7 +12,7 @@ import streamlit as st
 
 load_dotenv()
 
-API_BASE = os.getenv('FEEGOW_ACCESS_TOKEN')
+API_BASE = st.secrets.get("FEEGOW_ACCESS_TOKEN", os.getenv("FEEGOW_ACCESS_TOKEN"))
 API_CONFIG_FILE = "C:/Consultare/automacoes_agenda_feegow/api_config.yaml"
 
 with open(API_CONFIG_FILE, "r", encoding="utf-8") as f:

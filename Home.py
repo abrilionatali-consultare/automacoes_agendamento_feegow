@@ -5,7 +5,9 @@ from streamlit_cookies_manager import EncryptedCookieManager
 from login_page import login_page
 
 load_dotenv()
-COOKIES_SECRET = os.getenv('STREAMLIT_COOKIES_MANAGER_SECRET')
+
+# Tenta pegar dos secrets (Cloud), se falhar tenta do OS (Local com .env), se falhar usa string vazia
+COOKIES_SECRET = st.secrets.get("STREAMLIT_COOKIES_MANAGER_SECRET", os.getenv("STREAMLIT_COOKIES_MANAGER_SECRET"))
 
 st.set_page_config(page_icon='🏠', layout='centered', page_title='Relatório de Agendamentos')
 
@@ -13,7 +15,7 @@ st.set_page_config(page_icon='🏠', layout='centered', page_title='Relatório d
 if "cookies" not in st.session_state:
     cookies = EncryptedCookieManager(
         prefix="feegow_dashboard_",
-        password=os.getenv("STREAMLIT_COOKIES_MANAGER_SECRET")
+        password=COOKIES_SECRET
     )
     if not cookies.ready():
         st.stop()

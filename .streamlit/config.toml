@@ -1,9 +1,24 @@
 [theme]
-base="dark"
-primaryColor="#4e8cff"
-backgroundColor="#0e1117"
-secondaryBackgroundColor="#262730"
-textColor="#fafafa"
+# Cor primária: Usada em botões, sliders e focos de input.
+# Escolhido: Verde/Teal da paleta
+primaryColor = "#229A8A"
 
-[browser]
-gatherUsageStats = false
+# Cor de fundo principal da aplicação
+# Escolhido: Branco para limpeza visual (padrão)
+backgroundColor = "#FFFFFF"
+
+# Cor de fundo secundária (Sidebar e áreas de destaque/inputs desabilitados)
+# Escolhido: Um cinza azulado muito suave (não está na paleta, mas harmoniza com o azul #053F74)
+# Se preferir algo mais escuro, pode testar trocar por uma das cores da paleta, mas cuidado com o contraste.
+secondaryBackgroundColor = "#F0F2F6"
+
+# Cor do texto
+# Escolhido: Azul Escuro Profundo (Deep Blue 1) da paleta para substituir o preto padrão
+textColor = "#053F74"
+
+# Fonte do texto
+font = "sans serif"
+
+[server]
+# Opcional: Desabilita a barra de ferramentas de desenvolvimento se for produção
+headless = true

@@ -1,5 +1,6 @@
 import json
 import bcrypt
+import streamlit as st
 from pathlib import Path
 
 USERS_FILE = Path(__file__).resolve().parent.parent / "auth" / "users.json"
@@ -12,15 +13,24 @@ def load_users():
 
 
 def authenticate(username, password):
-    users = load_users()
+    """
+    Autentica o usuário usando st.secrets em vez de users.json
+    """
+    users_db = st.secrets.get("users")
 
-    if username not in users:
+    if not users_db:
+        st.error("Erro de configuração: Banco de usuários não encontrado nos Secrets.")
         return False, None
 
-    stored_hash = users[username]["password"]
+    # Verifica se o usuário existe
+    if username in users_db:
+        user_data = users_db[username]
+        stored_password = user_data["password"]
+        role = user_data["role"]
 
-    if bcrypt.checkpw(password.encode(), stored_hash.encode()):
-        return True, users[username]["role"]
+        # COMPARAÇÃO DE SENHA      
+        if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
+            return True, role
 
     return False, None
 
