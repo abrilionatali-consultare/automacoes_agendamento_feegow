@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import os
 import yaml
+from pathlib import Path
 from typing import Union
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
@@ -10,14 +11,21 @@ from datetime import datetime, timedelta, time
 from dateutil.parser import parse as date_parse
 import streamlit as st
 
+# Carrega variáveis de ambiente locais (.env) se existirem
 load_dotenv()
 
-API_BASE = st.secrets.get("FEEGOW_ACCESS_TOKEN", os.getenv("FEEGOW_ACCESS_TOKEN"))
-API_CONFIG_FILE = "C:/Consultare/automacoes_agenda_feegow/api_config.yaml"
+# Define o caminho do arquivo de configuração (Relativo, funciona no Cloud e Local)
+current_dir = Path(__file__).parent
+API_CONFIG_FILE = current_dir.parent / "api_config.yaml"
 
-with open(API_CONFIG_FILE, "r", encoding="utf-8") as f:
-    cfg = yaml.safe_load(f)
+try:
+    with open(API_CONFIG_FILE, 'r', encoding='utf-8') as f:
+        cfg = yaml.safe_load(f)
+except FileNotFoundError:
+    st.error(f"Arquivo de configuração não encontrado em: {API_CONFIG_FILE}")
+    st.stop()
 
+# Configurações Globais
 globals_cfg = cfg.get("globals", {})
 timeout = globals_cfg.get("timeout_seconds", 15)
 method_default = globals_cfg.get("method", "GET")
@@ -28,6 +36,7 @@ auth_cfg = globals_cfg.get("auth", {})
 endpoints_list = cfg.get("endpoints", [])
 ENDPOINTS = {ep["name"]: ep for ep in endpoints_list}
 
+# Configuração da Sessão com Retry
 session = requests.Session()
 retry_strategy = Retry(
     total=globals_cfg.get("retries", 3),
@@ -43,15 +52,30 @@ session.mount("http://", adapter)
 # EXTRAÇÃO DE DADOS DA API
 # ==========================================================
 def build_headers(endpoint_cfg):
+    """
+    Constrói os headers unindo globais + endpoint específico + Auth.
+    Busca o token no st.secrets (Cloud) ou variáveis de ambiente (Local).
+    """
     headers = dict(global_headers)
     headers.update(endpoint_cfg.get("headers", {}))
+    
     auth = endpoint_cfg.get("auth", auth_cfg)
+    
     if auth and auth.get("type") == "env_header":
-        env_name = auth.get("env_var")
-        token = os.getenv(env_name)
+        env_name = auth.get("env_var") # Ex: "FEEGOW_ACCESS_TOKEN"
+        
+        # [CORREÇÃO PRINCIPAL]: Busca no st.secrets primeiro, depois no OS
+        token = st.secrets.get(env_name, os.getenv(env_name))
+        
         if not token:
-            raise RuntimeError(f"Variável de ambiente {env_name} não encontrada")
+            # Tenta buscar diretamente pelo nome se não estiver na raiz do secrets
+            token = st.secrets.get("api", {}).get("token")
+
+        if not token:
+            raise RuntimeError(f"Token '{env_name}' não encontrado nos Secrets ou Variáveis de Ambiente.")
+            
         headers[auth.get("header_name", "Authorization")] = token
+        
     return headers
 
 def fill_body_template(template: dict, context: dict):
@@ -76,36 +100,26 @@ def request_endpoint(ep_cfg, global_context=None):
     params = None
 
     if needs_body:
-        # exemplo de contexto: preencher datas dinâmicas
         ctx = global_context or {}
-        # default: extrair últimos 2 dias (ajuste conforme necessidade)
         if "data_start" not in ctx or "data_end" not in ctx:
             today = datetime.utcnow().date()
             ctx.setdefault("data_end", today.strftime("%d-%m-%Y"))
             ctx.setdefault("data_start", (today - timedelta(days=1)).strftime("%d-%m-%Y"))
         json_payload = fill_body_template(body_template, ctx)
 
-    # decide método real (feegow aceita GET com body no exemplo, mas alguns servidores ignoram)
     real_method = method
     if needs_body and use_post_for_body:
         real_method = "POST"
 
     try:
-        if real_method == "GET":
-            # muitos endpoints GET sem body → usar params; se json_payload existe e API aceita corpo em GET,
-            # ainda é possível enviar json=..., mas alguns proxies ignoram. Aqui enviamos json se existe.
-            resp = session.request("GET", url, headers=headers, params=params, json=json_payload, timeout=timeout)
-        else:
-            resp = session.request(real_method, url, headers=headers, params=params, json=json_payload, timeout=timeout)
-
+        resp = session.request(real_method, url, headers=headers, params=params, json=json_payload, timeout=timeout)
         resp.raise_for_status()
-        # tenta parse JSON, se possível
         try:
             return resp.json()
         except ValueError:
             return {"raw": resp.text}
+            
     except requests.HTTPError as e:
-        # log do erro + corpo para diagnosticar 422
         text = e.response.text if e.response is not None else ""
         status = e.response.status_code if e.response is not None else None
         print(f"[ERROR] endpoint={ep_cfg.get('name')} status={status} error={e} body={text}")
@@ -118,7 +132,7 @@ def request_endpoint(ep_cfg, global_context=None):
 # Helpers internos
 # ==========================================================
 def _call_endpoint(name: str, context: dict = None):
-    ep_cfg = ENDPOINTS.get(name)   # <-- AGORA FUNCIONA
+    ep_cfg = ENDPOINTS.get(name)
     if not ep_cfg:
         raise RuntimeError(f"Endpoint não encontrado: {name}")
 
@@ -129,7 +143,6 @@ def _call_endpoint(name: str, context: dict = None):
     return result
 
 def _normalize_df(data, nested_key=None):
-    """Transforma listas/dicts em DataFrame."""
     if data is None:
         return pd.DataFrame()
     
@@ -144,162 +157,120 @@ def _normalize_df(data, nested_key=None):
 # ==========================================================
 # API PÚBLICA PARA O STREAMLIT
 # ==========================================================
-@st.cache_data
+@st.cache_data(ttl=300) # Adicionado TTL de 5 min para não ficar velho
 def fetch_agendamentos(unidade_id=None, start_date=None, end_date=None):
     """
     Busca agendamentos no período via API.
-    Usa o endpoint configurado como 'appointments'.
     """
     ctx = {}
-
-    # Datas - sempre no formato dd-mm-yyyy (Feegow)
-    if start_date:
-        ctx['data_start'] = start_date
-    if end_date:
-        ctx['data_end'] = end_date
-    if unidade_id:
-        ctx['unidade_id'] = unidade_id
+    if start_date: ctx['data_start'] = start_date
+    if end_date: ctx['data_end'] = end_date
+    if unidade_id: ctx['unidade_id'] = unidade_id
 
     raw = _call_endpoint('appointments', context=ctx)
     df = _normalize_df(raw, nested_key='content')
-
     return df
 
 @st.cache_data
 def list_profissionals():
-    raw = _call_endpoint('list-professional')  # CORRIGIDO
+    raw = _call_endpoint('list-professional')
     df = _normalize_df(raw, nested_key='content')
     return df
 
 @st.cache_data
 def list_especialidades():
-    """Retorna DataFrame com especialidades."""
     raw = _call_endpoint("list-specialties")
     df = _normalize_df(raw, nested_key="content")
     return df
 
 @st.cache_data
 def list_salas(unidade_id=None):
-    """Retorna DataFrame com locais (salas)"""
     raw = _call_endpoint("list-local")
     df = _normalize_df(raw, nested_key="content")
     return df
 
 @st.cache_data
 def list_unidades():
-    """Retorna DataFrame com unidades"""
-    raw = _call_endpoint("appointments")
+    # Nota: list-local geralmente retorna unidades também, 
+    # mas mantive sua lógica de usar appointments se preferir
+    raw = _call_endpoint("appointments") 
     df = _normalize_df(raw, nested_key='content')
-    df = df[['unidade_id', 'nome_fantasia']]
-    df.drop_duplicates(inplace=True)  
-    
+    if not df.empty and 'unidade_id' in df.columns and 'nome_fantasia' in df.columns:
+        df = df[['unidade_id', 'nome_fantasia']]
+        df.drop_duplicates(inplace=True)  
     return df
 
 # ===================================
-# CONSULTA DE PACIENTES CADASTRADOS
+# CONSULTA DE PACIENTES
 # ===================================
-# Funções de consulta individual
 @st.cache_data
 def get_patient_by_id(patient_id):
-
-    patient_id = int(patient_id)  # <- aqui!
-
+    patient_id = int(patient_id)
+    
+    # Criamos a config manualmente pois não está no YAML global
     ep_cfg = {
         "name": "patient-search",
         "url": "https://api.feegow.com/v1/api/patient/search",
         "method": "GET",
         "needs_body": True,
-        "body_template": {"paciente_id": patient_id}
+        "body_template": {"paciente_id": patient_id},
+        # Herda auth global se não especificar
     }
-
-    # Usar request_endpoint para fazer a requisição (reutiliza headers, auth, session, retries)
+    
     result = request_endpoint(ep_cfg)
-
     if result.get("error"):
-        return result  # Retorna erro diretamente (já tratado por request_endpoint)
+        return result
 
-    # Verificar estrutura da resposta
-    data = result
-    print("Resposta da API:", data)  # DEBUG: remova depois de testar
-
-    content = data.get("content")
+    content = result.get("content")
     if isinstance(content, list) and len(content) > 0:
-        return content[0]  # Retorna o primeiro paciente
+        return content[0]
     else:
-        return {"error": True, "message": "Nenhum paciente encontrado ou resposta inesperada.", "raw_response": data}
+        return {"error": True, "message": "Nenhum paciente encontrado.", "raw": result}
 
 @st.cache_data
 def get_patient_name_by_id(patient_id):
-    patient_id = int(patient_id)
-
     paciente = get_patient_by_id(patient_id)
-
     if paciente.get('error'):
         return None
-    
     return paciente.get('nome')
-
-df = fetch_agendamentos(
-    start_date='14-06-2025',
-    end_date='10-12-2025'
-)
-
 
 def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
     """
-    Retorna agendamentos + profissionais + especialidades + salas
-    já mesclados e prontos para uso no sistema.
+    Retorna agendamentos completos (com joins).
     """
-
-    # -----------------------------
-    # 1. BUSCA NA API
-    # -----------------------------
-    df = fetch_agendamentos(
-        start_date=start_date,
-        end_date=end_date,
-        unidade_id=unidade_id
-    )
+    df = fetch_agendamentos(start_date=start_date, end_date=end_date, unidade_id=unidade_id)
 
     if df.empty:
-        return df  # Sem dados no período
+        return df
 
     df_prof = list_profissionals()
     df_esp = list_especialidades()
     df_loc = list_salas(unidade_id)
 
-    # -----------------------------
-    # 2. MERGE COM ESPECIALIDADES
-    # -----------------------------
-    df = df.merge(df_esp, on="especialidade_id", how="left", suffixes=("", "_esp"))
-    df.rename(columns={"nome": "especialidade"}, inplace=True)
+    # Merges
+    if not df_esp.empty and "especialidade_id" in df.columns:
+        df = df.merge(df_esp, on="especialidade_id", how="left", suffixes=("", "_esp"))
+        df.rename(columns={"nome": "especialidade"}, inplace=True)
 
-    # -----------------------------
-    # 3. MERGE COM PROFISSIONAIS
-    # -----------------------------
-    df = df.merge(df_prof, on="profissional_id", how="left", suffixes=("", "_prof"))
+    if not df_prof.empty and "profissional_id" in df.columns:
+        df = df.merge(df_prof, on="profissional_id", how="left", suffixes=("", "_prof"))
+        if "nome_prof" in df.columns:
+            df.rename(columns={"nome_prof": "nome_profissional"}, inplace=True)
+        elif "nome" in df.columns:
+            df.rename(columns={"nome": "nome_profissional"}, inplace=True)
+            
+        if "tratamento" in df.columns and "nome_profissional" in df.columns:
+            df["nome_profissional"] = (
+                df["tratamento"].fillna("") + " " + df["nome_profissional"].fillna("")
+            ).str.strip()
 
-    # Renomeia o nome do profissional
-    if "nome_prof" in df.columns:
-        df.rename(columns={"nome_prof": "nome_profissional"}, inplace=True)
-    elif "nome" in df.columns:
-        df.rename(columns={"nome": "nome_profissional"}, inplace=True)
+    # Correção Especialidade
+    if "profissional_id" in df.columns and "especialidade_id" in df.columns:
+        df["especialidade_id"] = (
+            df.groupby("profissional_id")["especialidade_id"]
+            .transform(lambda x: x.ffill().bfill())
+        )
 
-    # Concatena tratamento + nome, se existir
-    if "tratamento" in df.columns and "nome_profissional" in df.columns:
-        df["nome_profissional"] = (
-            df["tratamento"].fillna("") + " " + df["nome_profissional"].fillna("")
-        ).str.strip()
-
-    # -----------------------------
-    # 4. CORREÇÃO DE especialidade_id
-    # -----------------------------
-    # 4.1 — propaga valores dentro do mesmo profissional_id
-    df["especialidade_id"] = (
-        df.groupby("profissional_id")["especialidade_id"]
-        .transform(lambda x: x.ffill().bfill())
-    )
-
-    # 4.2 — extrai do campo "especialidades" quando presente
     if "especialidades" in df.columns:
         df["especialidade_id"] = df["especialidade_id"].fillna(
             df["especialidades"].apply(
@@ -308,12 +279,18 @@ def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
             )
         )
 
-    # -----------------------------
-    # 5. MERGE COM LOCAIS (SALAS)
-    # -----------------------------
-    df = df.merge(df_loc, left_on="local_id", right_on="id", how="left", suffixes=("", "_sala"))
-
+    # Merge Locais
+    if not df_loc.empty and "local_id" in df.columns:
+        df = df.merge(df_loc, left_on="local_id", right_on="id", how="left", suffixes=("", "_sala"))
+    
     if "local" in df.columns:
         df.rename(columns={"local": "sala"}, inplace=True)
 
     return df
+
+# Evita que o código rode sozinho ao importar
+if __name__ == "__main__":
+    # Apenas para teste local, não rodará no import
+    print("Testando fetch localmente...")
+    teste = fetch_agendamentos(start_date='14-06-2025', end_date='14-06-2025')
+    print(teste.head())
