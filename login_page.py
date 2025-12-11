@@ -14,19 +14,21 @@ def login_page():
     password = st.text_input("Senha", type="password")
 
     if st.button("Entrar"):
-        ok, role = authenticate(username, password)
+        ok, role, name = authenticate(username, password)
 
         if ok:
             # Salva nos cookies
             cookies["logged_in"] = "true"
             cookies["username"] = username
             cookies["role"] = role
+            cookies["name"]= name
             cookies.save()
 
             # Salva no session_state
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
             st.session_state["role"] = role
+            st.session_state["name"] = name
 
             st.success("Login realizado com sucesso!")
             st.rerun()

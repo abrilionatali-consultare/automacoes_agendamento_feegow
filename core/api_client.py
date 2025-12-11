@@ -245,7 +245,8 @@ def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
 
     df_prof = list_profissionals()
     df_esp = list_especialidades()
-    df_loc = list_salas(unidade_id)
+    df_loc = list_salas()
+    df_unid = list_unidades()
 
     # Merges
     if not df_esp.empty and "especialidade_id" in df.columns:
@@ -263,6 +264,7 @@ def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
             df["nome_profissional"] = (
                 df["tratamento"].fillna("") + " " + df["nome_profissional"].fillna("")
             ).str.strip()
+        
 
     # Correção Especialidade
     if "profissional_id" in df.columns and "especialidade_id" in df.columns:
@@ -285,6 +287,10 @@ def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
     
     if "local" in df.columns:
         df.rename(columns={"local": "sala"}, inplace=True)
+
+    # Merge Unidades
+    if not df_unid.empty and not 'unidade' in df.columns:
+        df['unidade'] = df['nome_fantasia']
 
     return df
 

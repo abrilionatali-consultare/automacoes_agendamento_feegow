@@ -27,10 +27,11 @@ def authenticate(username, password):
         user_data = users_db[username]
         stored_password = user_data["password"]
         role = user_data["role"]
+        name = user_data["name"]
 
         # COMPARAÇÃO DE SENHA      
         if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
-            return True, role
+            return True, role, name
 
     return False, None
 

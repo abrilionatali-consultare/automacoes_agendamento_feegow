@@ -76,14 +76,32 @@ def fmt_time(t):
     return t.strftime("%H:%M")
 
 # ---------------- agregação e montagem de matrizes ----------------
+def get_natural_key(text):
+    """
+    Gera uma chave de ordenação natural (Ex: Sala 2 antes de Sala 10).
+    Retorna TUPLA (hashable) para ser compatível com Pandas e sort().
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    
+    # Retorna tupla para evitar erro 'unhashable type: list' no Pandas
+    return tuple([
+        int(c) if c.isdigit() else c.lower()
+        for c in re.split("([0-9]+)", text)
+    ])
+
 def sort_natural(values):
-    """Ordenação natural: CONSULTÓRIO 2 < CONSULTÓRIO 10."""
-    def alphanum_key(key):
-        return [
-            int(text) if text.isdigit() else text.lower()
-            for text in re.split("([0-9]+)", str(key))
-        ]
-    return sorted(values, key=alphanum_key)
+    """Ordenação natural de uma lista de valores."""
+    return sorted(values, key=get_natural_key)
+
+# def sort_natural(values):
+#     """Ordenação natural: CONSULTÓRIO 2 < CONSULTÓRIO 10."""
+#     def alphanum_key(key):
+#         return [
+#             int(text) if text.isdigit() else text.lower()
+#             for text in re.split("([0-9]+)", str(key))
+#         ]
+#     return sorted(values, key=alphanum_key)
 
 def build_matrices(df):
     """

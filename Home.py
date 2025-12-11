@@ -28,6 +28,7 @@ if cookies.get("logged_in") == "true":
     st.session_state["logged_in"] = True
     st.session_state["username"] = cookies.get("username")
     st.session_state["role"] = cookies.get("role")
+    st.session_state["name"] = cookies.get("name")
 
 # Se não estiver logado → página de login
 if not st.session_state.get("logged_in"):
@@ -35,12 +36,13 @@ if not st.session_state.get("logged_in"):
     st.stop()
 
 # Sidebar
-st.sidebar.write(f"👋 Olá, {st.session_state['username']}")
+st.sidebar.write(f"👋 Olá, {st.session_state['name']}")
 
 if st.sidebar.button("Sair"):
     cookies["logged_in"] = ""
     cookies["username"] = ""
     cookies["role"] = ""
+    cookies["name"] = ""
     cookies.save()
 
     st.session_state.clear()

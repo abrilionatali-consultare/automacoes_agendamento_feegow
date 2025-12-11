@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Mapa Diário</title>
+<style>
+  @page { size: A4 portrait; margin: 10mm; }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; color: #111; margin: 0; padding: 0; font-size: 11px; }
+
+  /* CABEÇALHO */
+  header.report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #229A8A; padding-bottom: 10px; }
+  .report-title { font-size: 20px; font-weight: 700; color: #053F74; text-transform: uppercase; }
+  .report-meta { text-align: right; font-size: 10px; color: #333; }
+  .date-line { font-size: 14px; font-weight: 600; color: #229A8A; margin-top: 4px; }
+  .unit-badge { background: #eee; padding: 4px 8px; border-radius: 4px; font-weight: bold; color: #555; display: inline-block; margin-top: 4px; }
+
+  /* TABELA */
+  table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      margin-bottom: 20px; 
+      /* CORREÇÃO: Removido page-break-inside: avoid da tabela inteira */
+  }
+  
+  /* Mantém as linhas unidas, evitando quebra no meio do texto de uma célula */
+  tr { page-break-inside: avoid; }
+
+  /* Cabeçalho da Tabela */
+  thead { display: table-header-group; } /* Repete cabeçalho se quebrar página */
+  
+  th {
+    background-color: #053F74;
+    color: white;
+    font-weight: 700;
+    padding: 6px;
+    text-align: left;
+    border: 1px solid #053F74;
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  td {
+    border: 1px solid #ccc;
+    padding: 5px;
+    text-align: left;
+    font-size: 10px;
+    vertical-align: middle;
+  }
+
+  /* Cabeçalho da UNIDADE */
+  tr.unit-header td {
+    background-color: #053F74;
+    color: white;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
+    font-size: 12px;
+    padding: 8px;
+    border: 1px solid #053F74;
+  }
+
+  /* Cabeçalho do PERÍODO */
+  tr.period-header td {
+    background-color: #daeef3;
+    color: #053F74;
+    font-weight: 800;
+    text-align: center;
+    font-size: 11px;
+    font-style: italic;
+    border-top: 1px solid #053F74;
+  }
+
+  tr.data-row:nth-child(even) { background-color: #f2f2f2; }
+  
+  .center { text-align: center; }
+  .right { text-align: right; }
+  
+  .total-row td {
+      background-color: #fff;
+      font-weight: 700;
+      border-top: 2px solid #053F74;
+      color: #053F74;
+  }
+  
+  .footer {
+      position: fixed; bottom: 0; width: 100%; text-align: right;
+      font-size: 9px; color: #777; border-top: 1px solid #ddd; padding-top: 5px;
+  }
+</style>
+</head>
+<body>
+
+<header class="report-header">
+  <div>
+    <div class="report-title">Mapa de Sala Diário</div>
+    <div class="date-line">{{ date_str }}</div>
+    <div class="unit-badge">{{ unidade }}</div>
+  </div>
+  <div class="report-meta">
+    Gerado em: {{ generated }}<br/>
+    Fonte: Feegow
+  </div>
+</header>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width: 15%;">Sala</th>
+      <th style="width: 10%;">Período</th>
+      <th style="width: 20%;">Especialidade</th>
+      <th style="width: 35%;">Médico</th>
+      <th style="width: 10%;" class="center">Qtd Total</th>
+      <th style="width: 10%;" class="center">Ocupação</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for uni_nome, dados_uni in all_data.items() %}
+      
+      {% if all_data|length > 1 %}
+      <tr class="unit-header">
+        <td colspan="6">{{ uni_nome }}</td>
+      </tr>
+      {% endif %}
+
+      {% for periodo in ['Manhã', 'Tarde'] %}
+        {% if dados_uni[periodo] %}
+          <tr class="period-header">
+            <td colspan="6">{{ periodo|upper }}</td>
+          </tr>
+
+          {% for row in dados_uni[periodo] %}
+          <tr class="data-row">
+            <td>{{ row.sala }}</td>
+            <td>{{ row.periodo_detalhe }}</td>
+            <td>{{ row.especialidade }}</td>
+            <td>{{ row.medico }}</td>
+            <td class="center">{{ row.ocupacao }}</td> 
+            <td class="center">{{ row.ocupacao }}</td>
+          </tr>
+          {% endfor %}
+          
+           <tr class="total-row">
+              <td colspan="4" class="right">Total {{ periodo }}:</td>
+              <td class="center">{{ dados_uni['totais'][periodo] }}</td>
+              <td></td>
+           </tr>
+        {% endif %}
+      {% endfor %}
+      
+      {% if all_data|length > 1 %}
+      <tr><td colspan="6" style="border:none; height:20px;"></td></tr>
+      {% endif %}
+
+    {% endfor %}
+    
+    <tr class="total-row" style="background-color: #229A8A; color: white;">
+        <td colspan="4" class="right" style="background-color: #229A8A; color: white;">TOTAL GERAL:</td>
+        <td class="center" style="background-color: #229A8A; color: white;">{{ grand_total }}</td>
+        <td style="background-color: #229A8A;"></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+    Documento gerado automaticamente.
+</div>
+
+</body>
+</html>
