@@ -18,14 +18,23 @@ load_dotenv()
 current_dir = Path(__file__).parent
 API_CONFIG_FILE = current_dir.parent / "api_config.yaml"
 
-try:
-    with open(API_CONFIG_FILE, 'r', encoding='utf-8') as f:
-        cfg = yaml.safe_load(f)
-except FileNotFoundError:
-    st.error(f"Arquivo de configuração não encontrado em: {API_CONFIG_FILE}")
-    st.stop()
+# ==========================================================
+# CARREGA CONFIGURAÇÃO DA API
+# ==========================================================
+@st.cache_resource
+def load_api_config():
+    try:
+        with open(API_CONFIG_FILE, 'r', encoding='utf-8') as f:
+            cfg = yaml.safe_load(f)
+            return cfg
+    except FileNotFoundError:
+        st.error(f"Arquivo de configuração não encontrado em: {API_CONFIG_FILE}")
+        st.stop()
 
-# Configurações Globais
+# ==========================================================
+# PARÂMETROS GLOBAIS DA API
+# ==========================================================
+cfg = load_api_config()
 globals_cfg = cfg.get("globals", {})
 timeout = globals_cfg.get("timeout_seconds", 15)
 method_default = globals_cfg.get("method", "GET")
@@ -36,8 +45,27 @@ auth_cfg = globals_cfg.get("auth", {})
 endpoints_list = cfg.get("endpoints", [])
 ENDPOINTS = {ep["name"]: ep for ep in endpoints_list}
 
-# Configuração da Sessão com Retry
-session = requests.Session()
+# ==========================================================
+# CONFIGURAÇÃO DE SESSÃO STREAMLIT
+# ==========================================================
+@st.cache_resource
+def get_session():
+    session = requests.Session()
+
+    retry_strategy = Retry(
+        total=globals_cfg.get("retries", 3),
+        backoff_factor=globals_cfg.get("backoff_factor", 1),
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST", "PUT", "DELETE", "HEAD"]
+    )
+
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
+
+session = get_session()
 retry_strategy = Retry(
     total=globals_cfg.get("retries", 3),
     backoff_factor=globals_cfg.get("backoff_factor", 1),
@@ -157,7 +185,7 @@ def _normalize_df(data, nested_key=None):
 # ==========================================================
 # API PÚBLICA PARA O STREAMLIT
 # ==========================================================
-@st.cache_data(ttl=300) # Adicionado TTL de 5 min para não ficar velho
+@st.cache_data(ttl=300)
 def fetch_agendamentos(unidade_id=None, start_date=None, end_date=None):
     """
     Busca agendamentos no período via API.
@@ -171,25 +199,25 @@ def fetch_agendamentos(unidade_id=None, start_date=None, end_date=None):
     df = _normalize_df(raw, nested_key='content')
     return df
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def list_profissionals():
     raw = _call_endpoint('list-professional')
     df = _normalize_df(raw, nested_key='content')
     return df
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def list_especialidades():
     raw = _call_endpoint("list-specialties")
     df = _normalize_df(raw, nested_key="content")
     return df
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def list_salas(unidade_id=None):
     raw = _call_endpoint("list-local")
     df = _normalize_df(raw, nested_key="content")
     return df
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def list_unidades():
     # Nota: list-local geralmente retorna unidades também, 
     # mas mantive sua lógica de usar appointments se preferir
@@ -203,7 +231,7 @@ def list_unidades():
 # ===================================
 # CONSULTA DE PACIENTES
 # ===================================
-@st.cache_data
+@st.cache_data(ttl=600)
 def get_patient_by_id(patient_id):
     patient_id = int(patient_id)
     
@@ -227,13 +255,13 @@ def get_patient_by_id(patient_id):
     else:
         return {"error": True, "message": "Nenhum paciente encontrado.", "raw": result}
 
-@st.cache_data
 def get_patient_name_by_id(patient_id):
     paciente = get_patient_by_id(patient_id)
     if paciente.get('error'):
         return None
     return paciente.get('nome')
 
+@st.cache_data(ttl=300)
 def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
     """
     Retorna agendamentos completos (com joins).
@@ -293,6 +321,82 @@ def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
         df['unidade'] = df['nome_fantasia']
 
     return df
+
+def fetch_horarios_disponiveis(unidade_id, data_start, data_end, profissional_id, tipo=None, procedimento_id=None, especialidade_id=None):
+    """
+    Busca slots livres. Se o tipo não for informado, assume 'E' (Especialidade)
+    e tenta descobrir o ID da especialidade do médico automaticamente.
+    """
+    
+    # Lógica de fallback: Se não passou tipo, assume Especialidade (Consulta Padrão)
+    if not tipo:
+        tipo = 'E'
+    
+    # Se for Especialidade e não passou ID, descobre automático
+    if tipo == 'E' and not especialidade_id:
+        especialidade_id = get_main_specialty_id(profissional_id)
+        if not especialidade_id:
+            # Se falhar, retorna vazio pois a API rejeitaria sem ID
+            print(f"Aviso: Não foi possível encontrar especialidade para o médico {profissional_id}")
+            return []
+
+    ctx = {
+        'unidade_id': unidade_id if unidade_id else 0,
+        'profissional_id': profissional_id,
+        'data_start': data_start,
+        'data_end': data_end,
+        'tipo': tipo,
+        'procedimento_id': procedimento_id if procedimento_id else "",
+        'especialidade_id': especialidade_id if especialidade_id else ""
+    }
+
+    raw = _call_endpoint('available-schedule', context=ctx)
+    
+    if raw and 'content' in raw:
+        return raw['content']
+        
+    return []
+
+def get_main_specialty_id(profissional_id):
+    """
+    Busca o ID da primeira especialidade vinculada ao profissional.
+    Útil para preencher o requisito obrigatório da API de disponibilidade.
+    """
+    # Usa a função que já existe no seu projeto para listar profissionais
+    # Se ela retorna um DataFrame, filtramos ele.
+    df_prof = list_profissionals() 
+    
+    if df_prof.empty:
+        return None
+        
+    # Garante tipos compatíveis
+    profissional_id = int(profissional_id)
+    
+    # Filtra o profissional
+    prof_data = df_prof[df_prof['profissional_id'] == profissional_id]
+    
+    if prof_data.empty:
+        return None
+    
+    # Tenta extrair o especialidade_id
+    # O formato depende de como o 'list_profissionals' normaliza os dados.
+    # Geralmente vem numa coluna 'especialidade_id' ou dentro de uma lista 'especialidades'
+    
+    try:
+        # Opção A: Se o dataframe já tem a coluna direta (seu código atual faz merge, então deve ter)
+        if 'especialidade_id' in prof_data.columns:
+            return int(prof_data.iloc[0]['especialidade_id'])
+            
+        # Opção B: Se estiver aninhado (lista de dicts)
+        if 'especialidades' in prof_data.columns:
+            specs = prof_data.iloc[0]['especialidades']
+            if isinstance(specs, list) and len(specs) > 0:
+                return int(specs[0]['especialidade_id'])
+                
+    except Exception as e:
+        print(f"Erro ao extrair especialidade: {e}")
+        
+    return None
 
 # Evita que o código rode sozinho ao importar
 if __name__ == "__main__":

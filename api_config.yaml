@@ -44,3 +44,18 @@ endpoints:
     description: "Extração dos pacientes"
     url: "https://api.feegow.com/v1/api/patient/list"
     method: "GET"
+
+  - name: available-schedule
+    description: "Lista todos os horários disponíveis para uma especialidade ou procedimento."
+    url: "https://api.feegow.com/v1/api/appoints/available-schedule"
+    method: "GET"
+    needs_body: true
+    use_post_for_body: false
+    body_template:
+      unidade_id: "{unidade_id}"
+      profissional_id: "{profissional_id}"
+      data_start: "{data_start}"  # A API exige data_start, não data_inicio
+      data_end: "{data_end}"
+      tipo: "{tipo}"              # "P" para Procedimento, "E" para Especialidade
+      procedimento_id: "{procedimento_id}"
+      especialidade_id: "{especialidade_id}" # Necessário se tipo="E"
