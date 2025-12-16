@@ -15,14 +15,16 @@ if not COOKIES_SECRET:
     st.stop()
 
 def main ():
-    # --- Inicializa cookies apenas uma vez --- 
+    # --- Inicializa cookies SEMPRE ---
     if "cookies" not in st.session_state:
         cookies = EncryptedCookieManager(
             prefix="feegow_dashboard_",
             password=COOKIES_SECRET
         )
+
         if not cookies.ready():
             st.stop()
+
         st.session_state["cookies"] = cookies
 
     cookies = st.session_state["cookies"]
