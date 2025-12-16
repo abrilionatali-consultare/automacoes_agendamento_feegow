@@ -82,8 +82,7 @@ status = {
 with col3:
     status_default = ['Todos']
     status_dict = dict(zip(status.values(), status.keys()))
-    status_sel = st.multiselect("Status do agendamento", options=['Todos'] + list(status.values()), default=status_default, 
-                                width="stretch", placeholder='Selecione o status do agendamento')
+    status_sel = st.multiselect("Status do agendamento", options=['Todos'] + list(status.values()), default=status_default, placeholder='Selecione o status do agendamento')
 
 if data_fim < data_inicio:
         st.warning("A data final deve ser maior ou igual à inicial.")
