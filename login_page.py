@@ -7,10 +7,6 @@ def login_page():
     # Usa o CookieManager criado no Home.py
     cookies = st.session_state.get("cookies")
 
-    if not cookies:
-        st.error("Erro interno: cookies não inicializados.")
-        st.stop()
-
     st.title("🔐 Login")
     st.write("Acesse o sistema usando suas credenciais.")
 
