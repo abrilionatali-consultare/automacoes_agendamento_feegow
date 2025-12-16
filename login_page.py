@@ -7,6 +7,10 @@ def login_page():
     # Usa o CookieManager criado no Home.py
     cookies = st.session_state.get("cookies")
 
+    if not cookies:
+        st.error("Erro interno: cookies não inicializados.")
+        st.stop()
+
     st.title("🔐 Login")
     st.write("Acesse o sistema usando suas credenciais.")
 
@@ -14,23 +18,18 @@ def login_page():
     password = st.text_input("Senha", type="password")
 
     if st.button("Entrar"):
-        ok, role, name = authenticate(username, password)
+        auth = authenticate(username, password)
 
-        if ok:
-            # Salva nos cookies
+        if auth:
             cookies["logged_in"] = "true"
-            cookies["username"] = username
-            cookies["role"] = role
-            cookies["name"]= name
+            cookies["username"] = auth["username"]
+            cookies["role"] = auth["role"]
+            cookies["name"] = auth["name"]
             cookies.save()
 
-            # Salva no session_state
+            st.session_state.update(auth)
             st.session_state["logged_in"] = True
-            st.session_state["username"] = username
-            st.session_state["role"] = role
-            st.session_state["name"] = name
 
-            st.success("Login realizado com sucesso!")
             st.rerun()
         else:
             st.error("Usuário ou senha incorretos.")

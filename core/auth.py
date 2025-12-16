@@ -1,50 +1,31 @@
 import json
 import bcrypt
 import streamlit as st
-from pathlib import Path
 
-USERS_FILE = Path(__file__).resolve().parent.parent / "auth" / "users.json"
 
 def load_users():
-    if not USERS_FILE.exists():
+    try:
+        return json.loads(st.secrets["USERS_JSON"])
+    except KeyError:
+        st.error("Secret USERS_JSON não configurada.")
         return {}
-    with open(USERS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
-def authenticate(username, password):
-    """
-    Autentica o usuário usando st.secrets em vez de users.json
-    """
-    users_db = st.secrets.get("users")
-
-    if not users_db:
-        st.error("Erro de configuração: Banco de usuários não encontrado nos Secrets.")
-        return False, None
-
-    # Verifica se o usuário existe
-    if username in users_db:
-        user_data = users_db[username]
-        stored_password = user_data["password"]
-        role = user_data["role"]
-        name = user_data["name"]
-
-        # COMPARAÇÃO DE SENHA      
-        if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
-            return True, role, name
-
-    return False, None
-
-
-def create_user(username, password, role="user"):
-    """Cria usuário com senha criptografada (use na página de gestão)."""
+def authenticate(username: str, password: str):
     users = load_users()
+    user = users.get(username)
 
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    if not user:
+        return None
 
-    users[username] = {"password": hashed, "role": role}
+    if bcrypt.checkpw(
+        password.encode("utf-8"),
+        user["password_hash"].encode("utf-8")
+    ):
+        return {
+            "username": username,
+            "name": user["name"],
+            "role": user["role"]
+        }
 
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=2)
-
-    return True
+    return None
