@@ -1,7 +1,15 @@
 libpango-1.0-0
 libpangoft2-1.0-0
 libharfbuzz-subset0
-libgdk-pixbuf2.0-0
+libgdk-pixbuf-xlib-2.0-0
 libcairo2
 libffi-dev
 shared-mime-info
+git
+git-lfs
+ffmpeg
+libsm6
+libxext6
+libgl1
+cmake
+rsync
