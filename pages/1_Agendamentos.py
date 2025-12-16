@@ -158,7 +158,7 @@ if st.button("🔍 Buscar agendamentos"):
 
         st.success("Busca concluída!")
         st.dataframe(
-            df, width='stretch', hide_index=True,
+            df, hide_index=True,
         )
 
         # EXPORTAR DADOS
