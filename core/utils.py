@@ -6,34 +6,28 @@ import re
 
 # ---------------- tratamento de dados ----------------
 def format_cell(raw):
-    """
-    Recebe a string já consolidada pelo build_matrices().
-    Formato esperado:
-        ESPECIALIDADE||SEP||NOME||SEP||HH:MM-HH:MM
-        (várias entradas separadas por ||ITEM||)
-    Retorna HTML formatado:
-        <b>ESPECIALIDADE</b><br/>
-        Nome<br/>
-        <b>Horário</b><br/><br/>
-    """
     if not raw or not isinstance(raw, str):
         return ""
 
-    # Cada bloco de atendimento
     items = raw.split("||ITEM||")
     out_lines = []
 
     for item in items:
         parts = item.split("||SEP||")
-        if len(parts) != 3:
+        # Agora esperamos 4 partes: Especialidade, Nome, Horário, Taxa
+        if len(parts) < 3:
             continue
 
-        esp, nome, horario = parts
-        esp = esp.strip().upper()
-        nome = nome.strip()
-        horario = horario.strip()
+        esp = parts[0].strip().upper()
+        nome = parts[1].strip()
+        horario = parts[2].strip()
+        taxa = parts[3].strip() if len(parts) > 3 else ""
 
+        # Montagem do bloco interno
         bloco = f"<b>{esp}</b><br/>{nome}<br/><b>{horario}</b>"
+        if taxa:
+            bloco += f"<br/><span style='font-size: 0.9em; opacity: 0.9;'>Ocupação: {taxa}%</span>"
+        
         out_lines.append(bloco)
 
     return "<br/><br/>".join(out_lines)
@@ -94,127 +88,63 @@ def sort_natural(values):
     """Ordenação natural de uma lista de valores."""
     return sorted(values, key=get_natural_key)
 
-# def sort_natural(values):
-#     """Ordenação natural: CONSULTÓRIO 2 < CONSULTÓRIO 10."""
-#     def alphanum_key(key):
-#         return [
-#             int(text) if text.isdigit() else text.lower()
-#             for text in re.split("([0-9]+)", str(key))
-#         ]
-#     return sorted(values, key=alphanum_key)
-
-def build_matrices(df):
-    """
-    Recebe df já filtrado pela data.
-    Retorna:
-        matrices: {"Manhã": DataFrame, "Tarde": DataFrame}
-        occupancy: {"Manhã": [..], "Tarde":[..]}
-        day_names: lista fixa de dias (Seg -> Sáb)
-    """
-
+def build_matrices(df, include_taxa=True):
     df = df.copy()
-
-    # -------------------------------------------------------------------------
-    # 1. Ajustar tipos
-    # -------------------------------------------------------------------------
     df["data"] = pd.to_datetime(df["data"]).dt.date
     df["time"] = df["horario"].apply(to_time)
     df["periodo"] = df["time"].apply(periodo_from_time)
 
-    # -------------------------------------------------------------------------
-    # 2. Dias fixos
-    # -------------------------------------------------------------------------
-    day_names = [
-        "Segunda-feira", "Terça-feira", "Quarta-feira",
-        "Quinta-feira", "Sexta-feira", "Sábado"
-    ]
-
-    # Criar coluna dia_pt
+    day_names = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
     df["dia_pt"] = df["data"].apply(lambda d: day_names[d.weekday()] if d.weekday() < 6 else "")
-    df = df[df["dia_pt"].isin(day_names)]
-
-    # -------------------------------------------------------------------------
-    # 3. Separar manha / tarde
-    # -------------------------------------------------------------------------
-    manha_df = df[df["periodo"] == "Manhã"].copy()
-    tarde_df = df[df["periodo"] == "Tarde"].copy()
-
-    # -------------------------------------------------------------------------
-    # 4. Ordenar salas
-    # -------------------------------------------------------------------------
-    salas_manha = sort_natural(manha_df["sala"].unique()) if not manha_df.empty else []
-    salas_tarde = sort_natural(tarde_df["sala"].unique()) if not tarde_df.empty else []
-
-    # -------------------------------------------------------------------------
-    # 5. Função interna para montar matriz consolidada
-    # -------------------------------------------------------------------------
+    
     def montar_matriz(subdf, salas):
-        if not salas:
-            return None
-
-        # DataFrame final
+        if not salas: return None
         mat = pd.DataFrame("", index=salas, columns=day_names)
-
-        # Agrupamento para encontrar 1º e último horário por profissional
-        # CHAVE: (sala, dia, especialidade, profissional)
         group_cols = ["sala", "dia_pt", "especialidade", "nome_profissional"]
-
+        
         subdf_grouped = (
             subdf.groupby(group_cols)
-                 .agg(start=("time", "min"), end=("time", "max"))
+                 .agg(
+                     start=("time", "min"), 
+                     end=("time", "max"),
+                     real_appts=("agendamento_id", lambda x: (x > 0).sum()),
+                     total_slots=("horario", "count")
+                 )
                  .reset_index()
         )
 
-        # Preencher a matriz
         for _, r in subdf_grouped.iterrows():
-            sala = r["sala"]
-            dia = r["dia_pt"]
-            esp = r["especialidade"]
-            prof = r["nome_profissional"]
-
-            # Montar intervalo
-            start_t = fmt_time(r["start"])
-            end_t = fmt_time(r["end"])
-            horario = f"{start_t}-{end_t}"
-
-            # Formar item bruto (será formatado no template)
-            item = f"{esp}||SEP||{prof}||SEP||{horario}"
-
-            prev = mat.at[sala, dia]
-            if prev:
-                mat.at[sala, dia] = prev + "||ITEM||" + item
+            # Define o horário formatado
+            horario_str = f"{fmt_time(r['start'])}-{fmt_time(r['end'])}"
+            
+            if include_taxa:
+                # Lógica para o Mapa Diário (com taxa e flag de cor)
+                taxa_val = (r["real_appts"] / r["total_slots"] * 100) if r["total_slots"] > 0 else 0
+                taxa_str = f"{taxa_val:.0f}"
+                low_flag = "||LOW||" if taxa_val < 50 else ""
+                item = f"{r['especialidade']}||SEP||{r['nome_profissional']}||SEP||{horario_str}||SEP||{taxa_str}{low_flag}"
             else:
-                mat.at[sala, dia] = item
+                # Lógica para o Mapa Semanal (limpo, sem taxa)
+                item = f"{r['especialidade']}||SEP||{r['nome_profissional']}||SEP||{horario_str}"
 
+            prev = mat.at[r["sala"], r["dia_pt"]]
+            mat.at[r["sala"], r["dia_pt"]] = (prev + "||ITEM||" + item) if prev else item
         return mat
 
-    # -------------------------------------------------------------------------
-    # 6. Gerar matrizes
-    # -------------------------------------------------------------------------
-    mat_manha = montar_matriz(manha_df, salas_manha)
-    mat_tarde = montar_matriz(tarde_df, salas_tarde)
-
+    # Separação Manhã/Tarde
     matrices = {
-        "Manhã": mat_manha if (mat_manha is not None and not mat_manha.empty) else None,
-        "Tarde": mat_tarde if (mat_tarde is not None and not mat_tarde.empty) else None,
+        "Manhã": montar_matriz(df[df["periodo"] == "Manhã"], sort_natural(df[df["periodo"] == "Manhã"]["sala"].unique())),
+        "Tarde": montar_matriz(df[df["periodo"] == "Tarde"], sort_natural(df[df["periodo"] == "Tarde"]["sala"].unique()))
     }
 
-    # -------------------------------------------------------------------------
-    # 7. Ocupação por período
-    # -------------------------------------------------------------------------
     occupancy = {"Manhã": [], "Tarde": []}
-
-    for periodo, mat in matrices.items():
-        if mat is None:
-            occupancy[periodo] = []
+    for periodo, m in matrices.items():
+        if m is None:
+            occupancy[periodo] = [0]*6
             continue
-
-        total_salas = len(mat.index)
-
         for dia in day_names:
-            filled = mat[dia].apply(lambda v: isinstance(v, str) and v.strip() != "").sum()
-            perc = int(round((filled / total_salas) * 100)) if total_salas else 0
-            occupancy[periodo].append(perc)
+            filled = m[dia].apply(lambda v: isinstance(v, str) and v.strip() != "").sum()
+            occupancy[periodo].append(int(round((filled / len(m.index)) * 100)) if len(m.index) else 0)
 
     return matrices, occupancy, day_names
 

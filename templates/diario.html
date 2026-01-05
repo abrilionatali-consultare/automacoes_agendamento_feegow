@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Mapa Diário</title>
+<title>Mapa Diário - {{ unidade }}</title>
 <style>
   @page { size: A4 portrait; margin: 10mm; }
   body { font-family: "DejaVu Sans", Arial, sans-serif; color: #111; margin: 0; padding: 0; font-size: 11px; }
@@ -16,18 +16,9 @@
   .unit-badge { background: #eee; padding: 4px 8px; border-radius: 4px; font-weight: bold; color: #555; display: inline-block; margin-top: 4px; }
 
   /* TABELA */
-  table { 
-      width: 100%; 
-      border-collapse: collapse; 
-      margin-bottom: 20px; 
-      /* CORREÇÃO: Removido page-break-inside: avoid da tabela inteira */
-  }
-  
-  /* Mantém as linhas unidas, evitando quebra no meio do texto de uma célula */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
   tr { page-break-inside: avoid; }
-
-  /* Cabeçalho da Tabela */
-  thead { display: table-header-group; } /* Repete cabeçalho se quebrar página */
+  thead { display: table-header-group; }
   
   th {
     background-color: #053F74;
@@ -40,38 +31,21 @@
     text-transform: uppercase;
   }
 
-  td {
-    border: 1px solid #ccc;
-    padding: 5px;
-    text-align: left;
-    font-size: 10px;
-    vertical-align: middle;
-  }
+  td { border: 1px solid #ccc; padding: 5px; text-align: left; font-size: 10px; vertical-align: middle; }
 
-  /* Cabeçalho da UNIDADE */
   tr.unit-header td {
-    background-color: #053F74;
-    color: white;
-    font-weight: 800;
-    text-align: center;
-    text-transform: uppercase;
-    font-size: 12px;
-    padding: 8px;
-    border: 1px solid #053F74;
+    background-color: #053F74; color: white; font-weight: 800; text-align: center;
+    text-transform: uppercase; font-size: 12px; padding: 8px; border: 1px solid #053F74;
   }
 
-  /* Cabeçalho do PERÍODO */
   tr.period-header td {
-    background-color: #daeef3;
-    color: #053F74;
-    font-weight: 800;
-    text-align: center;
-    font-size: 11px;
-    font-style: italic;
-    border-top: 1px solid #053F74;
+    background-color: #daeef3; color: #053F74; font-weight: 800; text-align: center;
+    font-size: 11px; font-style: italic; border-top: 1px solid #053F74;
   }
 
   tr.data-row:nth-child(even) { background-color: #f2f2f2; }
+  .low-occ-row { background-color: #FFF5EE !important; border-left: 4px solid #FFA07A; }
+  .taxa-label { display: block; font-size: 9px; color: #666; font-weight: bold; margin-top: 2px; }
   
   .center { text-align: center; }
   .right { text-align: right; }
@@ -82,6 +56,8 @@
       border-top: 2px solid #053F74;
       color: #053F74;
   }
+
+  .subtotal-taxa { font-size: 9px; color: #229A8A; font-weight: bold; }
   
   .footer {
       position: fixed; bottom: 0; width: 100%; text-align: right;
@@ -110,17 +86,15 @@
       <th style="width: 10%;">Período</th>
       <th style="width: 20%;">Especialidade</th>
       <th style="width: 35%;">Médico</th>
-      <th style="width: 10%;" class="center">Qtd Total</th>
-      <th style="width: 10%;" class="center">Ocupação</th>
+      <th style="width: 10%;" class="center">Grade</th>
+      <th style="width: 10%;" class="center">Pacientes</th>
     </tr>
   </thead>
   <tbody>
     {% for uni_nome, dados_uni in all_data.items() %}
       
       {% if all_data|length > 1 %}
-      <tr class="unit-header">
-        <td colspan="6">{{ uni_nome }}</td>
-      </tr>
+      <tr class="unit-header"><td colspan="6">{{ uni_nome }}</td></tr>
       {% endif %}
 
       {% for periodo in ['Manhã', 'Tarde'] %}
@@ -130,35 +104,42 @@
           </tr>
 
           {% for row in dados_uni[periodo] %}
-          <tr class="data-row">
+          <tr class="data-row {% if row.taxa_num < 50 %}low-occ-row{% endif %}">
             <td>{{ row.sala }}</td>
             <td>{{ row.periodo_detalhe }}</td>
             <td>{{ row.especialidade }}</td>
-            <td>{{ row.medico }}</td>
-            <td class="center">{{ row.ocupacao }}</td> 
+            <td>
+                <strong>{{ row.medico }}</strong>
+                <span class="taxa-label">Aproveitamento: {{ row.taxa_ocupacao }}</span>
+            </td>
+            <td class="center">{{ row.vagas_grade }}</td> 
             <td class="center">{{ row.ocupacao }}</td>
           </tr>
           {% endfor %}
           
            <tr class="total-row">
               <td colspan="4" class="right">Total {{ periodo }}:</td>
-              <td class="center">{{ dados_uni['totais'][periodo] }}</td>
-              <td></td>
+              <td class="center">{{ dados_uni['totais'][periodo]['grade'] }}</td>
+              <td class="center">{{ dados_uni['totais'][periodo]['pacientes'] }}</td>
+           </tr>
+           <tr style="border-bottom: 1px solid #053F74;">
+              <td colspan="4" class="right subtotal-taxa">Taxa de Ocupação {{ periodo }}:</td>
+              <td colspan="2" class="center subtotal-taxa">{{ "%.1f"|format(dados_uni['totais'][periodo]['taxa']) }}%</td>
            </tr>
         {% endif %}
       {% endfor %}
-      
-      {% if all_data|length > 1 %}
-      <tr><td colspan="6" style="border:none; height:20px;"></td></tr>
-      {% endif %}
+
+      <tr class="total-row" style="background-color: #f9f9f9;">
+        <td colspan="4" class="right">Resumo do Dia ({{ uni_nome }}):</td>
+        <td class="center">{{ dados_uni['totais']['dia']['grade'] }}</td>
+        <td class="center">{{ dados_uni['totais']['dia']['pacientes'] }}</td>
+      </tr>
+      <tr>
+        <td colspan="4" class="right" style="font-weight: bold; color: #053F74;">Taxa de Ocupação Diária:</td>
+        <td colspan="2" class="center" style="font-weight: bold; color: #053F74;">{{ "%.1f"|format(dados_uni['totais']['dia']['taxa']) }}%</td>
+      </tr>
 
     {% endfor %}
-    
-    <tr class="total-row" style="background-color: #229A8A; color: white;">
-        <td colspan="4" class="right" style="background-color: #229A8A; color: white;">TOTAL GERAL:</td>
-        <td class="center" style="background-color: #229A8A; color: white;">{{ grand_total }}</td>
-        <td style="background-color: #229A8A;"></td>
-    </tr>
   </tbody>
 </table>
 

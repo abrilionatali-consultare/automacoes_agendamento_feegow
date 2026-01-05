@@ -31,7 +31,7 @@ with col1:
 
 with col2:
     df_unid = list_unidades()
-    unidades_opcoes = ["Todas"] + list(df_unid['nome_fantasia'])
+    unidades_opcoes = list(df_unid['nome_fantasia'])
     unidade_sel = st.selectbox("Gerar mapa para qual unidade?", unidades_opcoes)
 
 if not is_monday(week_start):
@@ -41,7 +41,7 @@ if not is_monday(week_start):
 # ================================================
 # Botão para gerar
 # ================================================
-botao = st.button("Gerar Mapas Semanais")
+botao = st.button("Gerar Mapa Semanal")
 st.divider()
 
 if botao:
