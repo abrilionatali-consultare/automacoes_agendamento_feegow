@@ -56,4 +56,4 @@ endpoints:
       profissional_id: "{profissional_id}"
       data_start: "{data_start}"  # A API exige data_start, não data_inicio
       data_end: "{data_end}"
-      tipo: "{tipo}"              # "P" para Procedimento, "E" para Especialidade
+      tipo: "{tipo}"

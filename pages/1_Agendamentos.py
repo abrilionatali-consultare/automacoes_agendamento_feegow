@@ -83,7 +83,7 @@ with col3:
     status_default = ['Todos']
     status_dict = dict(zip(status.values(), status.keys()))
     status_sel = st.multiselect("Status do agendamento", options=['Todos'] + list(status.values()), default=status_default, 
-                                width="stretch", placeholder='Selecione o status do agendamento')
+                                placeholder='Selecione o status do agendamento')
 
 if data_fim < data_inicio:
         st.warning("A data final deve ser maior ou igual à inicial.")
@@ -159,7 +159,20 @@ if st.button("🔍 Buscar agendamentos"):
 
         st.success("Busca concluída!")
         st.dataframe(
-            df, width='stretch', hide_index=True,
+            df, 
+            use_container_width=True,
+            hide_index=True,          
+            height=600,               
+            column_config={
+                "Status": st.column_config.TextColumn(width="small"),
+                "Data": st.column_config.TextColumn(width="small"),
+                "Horário": st.column_config.TextColumn(width="small"),
+                "ID Agendamento": st.column_config.NumberColumn(width="small"),
+                "ID Paciente": st.column_config.NumberColumn(width="small"),
+                "Profissional": st.column_config.TextColumn(width="medium"),
+                "Especialidade": st.column_config.TextColumn(width="medium"),
+                "Unidade": st.column_config.TextColumn(width="medium"),
+            }
         )
 
         # EXPORTAR DADOS

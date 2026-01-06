@@ -1,4 +1,5 @@
 import streamlit as st
+from core.api_client import fetch_agendamentos, fetch_horarios_disponiveis
 
 if not st.session_state.get("logged_in", False):
     st.switch_page("Home.py")   # Redireciona para login

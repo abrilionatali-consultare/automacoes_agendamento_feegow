@@ -41,6 +41,10 @@ if not is_monday(week_start):
 # ================================================
 # Botão para gerar
 # ================================================
+st.info(
+        "ℹ️ **Nota:** Para o dia de hoje e dias anteriores desta semana, os horários refletem apenas os agendamentos. "
+        "Os dias futuros da semana seguem com a precisão completa, com agendamentos + horários disponíveis."
+    )
 botao = st.button("Gerar Mapa Semanal")
 st.divider()
 

@@ -1,13 +1,12 @@
 from pathlib import Path
 from datetime import timedelta, datetime, date
-from jinja2 import Environment,FileSystemLoader
+from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML
 import pandas as pd
 import re
 
 from core.api_client import (
     fetch_agendamentos,
-    fetch_agendamentos_completos,
     list_profissionals,
     list_especialidades,
     list_salas,
@@ -20,221 +19,252 @@ from core.utils import (
     build_matrices,
     render_pdf_from_template,
     to_time,
-    periodo_from_time,
-    get_natural_key
+    periodo_from_time
 )
 
 from core.normalize_df import normalize_and_validate
 
-# ===============================================
-# Importações de dados da API
-# ===============================================
+# Carregamento de dados auxiliares
 df_prof = list_profissionals()
 df_esp = list_especialidades()
 df_loc = list_salas()
-df_unid = list_unidades() # Traz colunas: id, nome_fantasia (ou nome)
+df_unid = list_unidades()
 
-# ===============================================
-# Função principal para geração de mapas semanais
-# ===============================================
 def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"):
     """
-    Gera mapas semanais corrigindo o conflito de nomes entre 'nome_fantasia' e 'unidade'.
+    Função de Mapa Semanal (Mantida a lógica funcional e limpa).
     """
     start_date_str = start_date if isinstance(start_date, str) else start_date.strftime("%d-%m-%Y")
     df_unid_list = list_unidades()
 
-    # Preparação de datas
     start_dt = datetime.strptime(start_date_str, "%d-%m-%Y")
     end_date_str = (start_dt + timedelta(days=6)).strftime("%d-%m-%Y")
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Identificação da Unidade selecionada no Streamlit
     unidade_sel_id = None
     if unidade_id and unidade_id != 'Todas':
         filtro = df_unid_list[df_unid_list['nome_fantasia'] == unidade_id]
         if not filtro.empty:
             unidade_sel_id = int(filtro['unidade_id'].iloc[0])
 
-    # 2. Busca Agendamentos e Injeção de Grade (Dra. Layne)
+    # Busca dados
     df_ag = fetch_agendamentos(start_date=start_date_str, end_date=end_date_str, unidade_id=unidade_sel_id)
     if df_ag.empty: return {"warning": "Vazio"}
     
-    df_base = df_ag.copy()
-    profs_ativos = df_base["profissional_id"].unique()
+    # Injeção de Grade
+    profs_ativos = df_ag["profissional_id"].unique()
     all_slots = []
-    
     for p_id in profs_ativos:
-        p_id_native = int(p_id)
-        sid_query = get_main_specialty_id(p_id_native)
-        if sid_query:
-            vagas = fetch_horarios_disponiveis(unidade_sel_id, start_date_str, end_date_str, p_id_native, especialidade_id=int(sid_query))
+        p_int = int(p_id)
+        sid = get_main_specialty_id(p_int)
+        if sid:
+            vagas = fetch_horarios_disponiveis(unidade_sel_id, start_date_str, end_date_str, p_int, especialidade_id=int(sid))
             if not vagas.empty:
                 vagas['agendamento_id'], vagas['status_id'] = 0, 0 
                 all_slots.append(vagas)
 
+    # União
     if all_slots:
-        df = pd.concat([df_base, pd.concat(all_slots)], ignore_index=True)
-        # Sincroniza especialidade para unificar blocos de horário
-        df['especialidade_id'] = df.groupby(['profissional_id', 'data', 'local_id'])['especialidade_id'].transform(lambda x: x.ffill().bfill())
-        df['especialidade_id'] = df['especialidade_id'].fillna(df['profissional_id'].map(lambda x: get_main_specialty_id(x)))
+        df = pd.concat([df_ag, pd.concat(all_slots)], ignore_index=True)
+        # Sincronização simples para o semanal
+        df['especialidade_id'] = df.groupby(['profissional_id', 'local_id'])['especialidade_id'].transform(lambda x: x.ffill().bfill())
     else:
-        df = df_base
+        df = df_ag.copy()
 
-    # 3. Merges de Apoio
+    # Merges
     df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
     df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
     df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
 
-    # 4. Normalização (Onde a coluna 'nome_fantasia' costuma se perder)
+    # Normalização
     df_final, _ = normalize_and_validate(df)
 
-    # 5. RESOLUÇÃO DO ERRO 'unidade'
+    # Remove salas inválidas para o mapa
+    remover = ['LABORATÓRIO', 'RAIO X', 'SALA DE VACINA', 'COLETA DOMICILIAR', 'VACINA', 'LABORATORIO']
+    df_final = df_final[~df_final['sala'].isin(remover)]
+    
+    # Fix Unidade
     if unidade_id and unidade_id != 'Todas':
-        # Se uma unidade específica foi escolhida, forçamos o nome dela
         df_final['unidade'] = unidade_id
     else:
-        # Se for 'Todas', usamos o 'nome_fantasia' que vem da API e renomeamos para 'unidade'
-        if 'nome_fantasia' in df_final.columns:
-            df_final.rename(columns={'nome_fantasia': 'unidade'}, inplace=True)
-        elif 'unidade_id' in df_final.columns:
-            # Caso o nome tenha sumido mas o ID permaneça, recuperamos o nome
+        if 'unidade_id' in df_final.columns:
             df_final = df_final.merge(df_unid_list[['unidade_id', 'nome_fantasia']], on="unidade_id", how="left")
             df_final.rename(columns={'nome_fantasia': 'unidade'}, inplace=True)
-    
-    # Preenchimento de segurança se nada funcionar
-    if 'unidade' not in df_final.columns:
-        df_final['unidade'] = 'Geral'
-    else:
-        df_final['unidade'] = df_final['unidade'].fillna("Geral")
+            
+    df_final['unidade'] = df_final['unidade'].fillna("Geral")
+    df_final = df_final[~df_final['sala'].str.upper().isin(['SALA DE VACINA', 'LABORATÓRIO', 'RAIO X'])]
 
-    # 6. Filtros de Regra e Salas
-    df_final = df_final[df_final["status_id"].isin([0, 1, 7, 2, 3, 4])]
-    salas_remover = ['SALA DE VACINA', 'LABORATÓRIO', 'RAIO X', 'COLETA DOMICILIAR']
-    df_final = df_final[~df_final['sala'].isin(salas_remover)]
-
-    # 7. Geração dos PDFs
+    # Geração
     out_bytes = {}
     for unidade in df_final["unidade"].unique():
         if not unidade: continue
-        df_sub = df_final[df_final["unidade"] == unidade]
-        
-        # Mapa Semanal limpo (include_taxa=False)
-        matrices, occ, days = build_matrices(df_sub, include_taxa=False)
-
-        pdf_bytes = render_pdf_from_template(
-            unidade=unidade, matrices=matrices, occupancy=occ, day_names=days,
-            week_start_date=start_date_str, week_end_date=end_date_str,
-            template_path="templates/semanal2.html", cell_font_size_px=9, return_bytes=True
-        )
+        matrices, occ, days = build_matrices(df_final[df_final["unidade"] == unidade], include_taxa=False)
+        pdf_bytes = render_pdf_from_template(unidade, matrices, occ, days, start_date_str, end_date_str, "templates/semanal2.html", cell_font_size_px=9, return_bytes=True)
         out_bytes[unidade] = pdf_bytes
-        
     return out_bytes
 
 def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados"):
     start_date_str = start_date if isinstance(start_date, str) else start_date.strftime("%d-%m-%Y")
     df_unid_list = list_unidades()
 
+    # 1. Identificação da Unidade
     unidade_sel_id = None
-    unidade_nome_real = unidade_id 
     if unidade_id and unidade_id != 'Todas':
-        col_nome = next((c for c in ['nome_fantasia', 'nome'] if c in df_unid_list.columns), None)
-        if col_nome:
-            filtro = df_unid_list[df_unid_list[col_nome] == unidade_id]
-            if not filtro.empty:
-                unidade_sel_id = int(filtro['unidade_id'].iloc[0])
-                unidade_nome_real = filtro['nome_fantasia'].iloc[0]
+        filtro = df_unid_list[df_unid_list['nome_fantasia'] == unidade_id]
+        if not filtro.empty:
+            unidade_sel_id = int(filtro['unidade_id'].iloc[0])
 
-    df_ag_raw = fetch_agendamentos(start_date=start_date_str, end_date=start_date_str, unidade_id=unidade_sel_id)
-    if df_ag_raw.empty: return {"warning": "Vazio"}
+    # 2. Busca Agendamentos
+    df_ag = fetch_agendamentos(start_date=start_date_str, end_date=start_date_str, unidade_id=unidade_sel_id)
+    if df_ag.empty: return {"warning": "Sem agendamentos para esta data."}
 
-    # Injeção de Grade
-    profs = df_ag_raw["profissional_id"].unique()
+    # Tipagem forte
+    for col in ['profissional_id', 'local_id', 'especialidade_id', 'agendamento_id']:
+        if col in df_ag.columns:
+            df_ag[col] = pd.to_numeric(df_ag[col], errors='coerce').fillna(0).astype(int)
+
+    # 3. INJEÇÃO DE GRADE (ESTRATÉGIA MULTI-ESPECIALIDADE)
+    # Em vez de adivinhar uma, buscamos a grade para TODAS as especialidades que o médico tem no dia.
+    profs = df_ag["profissional_id"].unique()
     all_slots = []
+    
     for p_id in profs:
-        p_id_native = int(p_id)
-        sid = get_main_specialty_id(p_id_native)
-        if sid:
-            v_df = fetch_horarios_disponiveis(unidade_sel_id, start_date_str, start_date_str, p_id_native, especialidade_id=int(sid))
+        p_int = int(p_id)
+        
+        # Lista de especialidades ativas deste médico HOJE nos agendamentos
+        specs_do_dia = df_ag[df_ag['profissional_id'] == p_int]['especialidade_id'].unique()
+        specs_do_dia = [int(s) for s in specs_do_dia if s > 0]
+        
+        # Se não tiver agendamento com especialidade definida, tenta o fallback da API
+        if not specs_do_dia:
+            sid_main = get_main_specialty_id(p_int)
+            if sid_main: 
+                specs_do_dia = [sid_main]
+            
+        # Busca vagas para CADA especialidade encontrada
+        for sid in specs_do_dia:
+            v_df = fetch_horarios_disponiveis(
+                unidade_id=unidade_sel_id, 
+                data_start=start_date_str, 
+                data_end=start_date_str, 
+                profissional_id=p_int, 
+                especialidade_id=int(sid)
+            )
+            
             if not v_df.empty:
-                v_df['agendamento_id'], v_df['status_id'] = 0, 0
+                v_df['agendamento_id'] = 0
+                v_df['status_id'] = 0
+                v_df['profissional_id'] = p_int
+                # Marca a especialidade que usamos para buscar
+                v_df['especialidade_id'] = int(sid)
+                
+                # Herda o local_id dos agendamentos se a API de vagas não trouxe
+                if 'local_id' not in v_df.columns or v_df['local_id'].sum() == 0:
+                     locais = df_ag[df_ag['profissional_id'] == p_int]['local_id'].unique()
+                     local_fallback = locais[0] if len(locais) > 0 else 0
+                     v_df['local_id'] = int(local_fallback)
+                
                 all_slots.append(v_df)
 
+    # 4. União e Limpeza
     if all_slots:
-        df = pd.concat([df_ag_raw, pd.concat(all_slots)], ignore_index=True)
-        df['especialidade_id'] = df.groupby(['profissional_id', 'local_id'])['especialidade_id'].transform(lambda x: x.ffill().bfill())
+        df_grade = pd.concat(all_slots, ignore_index=True)
+        
+        # [CRUCIAL] Remove duplicatas de horário (mesmo slot servindo p/ 2 especialidades)
+        # Isso impede que a grade dobre de tamanho artificialmente
+        df_grade = df_grade.drop_duplicates(subset=['profissional_id', 'horario', 'local_id'])
+        
+        df = pd.concat([df_ag, df_grade], ignore_index=True)
     else:
-        df = df_ag_raw.copy()
+        df = df_ag.copy()
 
+    # 5. Sincronização de Especialidade (Evita Duplicação Visual)
+    # Cria mapa de especialidade dominante por sala
+    spec_map = {}
+    valid_specs = df_ag[df_ag['especialidade_id'] > 0]
+    if not valid_specs.empty:
+        spec_map = valid_specs.groupby(['profissional_id', 'local_id'])['especialidade_id'].first().to_dict()
+    
+    def corrigir_especialidade(row):
+        k = (row['profissional_id'], row['local_id'])
+        return spec_map.get(k, row['especialidade_id']) # Usa a do mapa ou mantém a original
+
+    df['especialidade_id'] = df.apply(corrigir_especialidade, axis=1)
+
+    # Merges
     df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
     df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
     df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
 
-    # 4. Normalização e Atribuição de Unidade
+    # Normalização e Filtros
     df_final, _ = normalize_and_validate(df)
     
-    # [FIX] Re-atribuição da coluna unidade para evitar o KeyError
-    if unidade_sel_id:
-        df_final['unidade'] = unidade_nome_real
-    else:
-        df_final = df_final.merge(df_unid_list[['unidade_id', 'nome_fantasia']], on="unidade_id", how="left")
-        df_final.rename(columns={'nome_fantasia': 'unidade'}, inplace=True)
-
-    df_final['unidade'] = df_final['unidade'].fillna("Geral")
-    remover_salas = ['SALA DE VACINA', 'LABORATÓRIO', 'RAIO X', 'COLETA DOMICILIAR']
-    df_final = df_final[~df_final['sala'].isin(remover_salas)]
-
+    # Filtro de Salas Administrativas
+    remover = ['LABORATÓRIO', 'RAIO X', 'SALA DE VACINA', 'COLETA DOMICILIAR', 'VACINA', 'LABORATORIO']
+    df_final = df_final[~df_final['sala'].str.upper().str.contains('|'.join(remover), na=False)]
+    
     df_final['time'] = df_final['horario'].apply(to_time)
     df_final['periodo'] = df_final['time'].apply(periodo_from_time)
     
-    # 5. Agrupamento para o Template
+    # 6. Agrupamento (Grade vs Pacientes)
     master_data = {}
-    unidades_para_processar = df_final['unidade'].unique()
-    for unidade in unidades_para_processar:
-        if not unidade: continue
-        # [FIX] Filtragem correta por unidade dentro do loop para não duplicar dados
-        df_uni = df_final[df_final['unidade'] == unidade].copy()
-        dados_uni = {
-            "Manhã": [], "Tarde": [], 
-            "totais": {
-                'Manhã': {'grade': 0, 'pacientes': 0, 'taxa': 0},
-                'Tarde': {'grade': 0, 'pacientes': 0, 'taxa': 0},
-                'dia': {'grade': 0, 'pacientes': 0, 'taxa': 0}
-            }
+    dados_uni = {
+        "Manhã": [], "Tarde": [], 
+        "totais": {'Manhã': {'grade': 0, 'pacientes': 0, 'taxa': 0}, 'Tarde': {'grade': 0, 'pacientes': 0, 'taxa': 0}, 'dia': {'grade': 0, 'pacientes': 0, 'taxa': 0}}
+    }
+    
+    grouped = df_final.groupby(['sala', 'nome_profissional', 'especialidade', 'periodo']).agg(
+        pacientes_reais=('agendamento_id', lambda x: (pd.to_numeric(x, errors='coerce').fillna(0) > 0).sum()),
+        grade_total=('horario', 'count')
+    ).reset_index()
+
+    def natural_key(text):
+        # Divide o texto em partes numéricas e não numéricas para ordenar corretamente
+        return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', str(text))]
+
+    # Aplica a chave de ordenação
+    grouped['sort_key'] = grouped['sala'].apply(natural_key)
+    # Ordena o DataFrame usando essa chave
+    grouped = grouped.sort_values(by='sort_key')
+
+    for _, row in grouped.iterrows():
+        g = int(row['grade_total'])
+        p = int(row['pacientes_reais'])
+        
+        # Se Grade < Pacientes, houve falha na busca da grade, assumimos 100% (grade = pacientes)
+        if g < p: g = p
+            
+        taxa = (p / g * 100) if g > 0 else 0
+        
+        item = {
+            'sala': row['sala'], 'periodo_detalhe': row['periodo'], 'especialidade': row['especialidade'],
+            'medico': row['nome_profissional'], 'ocupacao': p, 'vagas_grade': g, 'taxa_ocupacao': f"{taxa:.1f}%", 'taxa_num': taxa
         }
         
-        grouped = df_uni.groupby(['sala', 'nome_profissional', 'especialidade', 'periodo']).agg(
-            agendamentos=('agendamento_id', lambda x: (x > 0).sum()),
-            vagas_totais=('horario', 'count')
-        ).reset_index()
+        if row['periodo'] in ["Manhã", "Tarde"]:
+            dados_uni[row['periodo']].append(item)
+            dados_uni['totais'][row['periodo']]['grade'] += g
+            dados_uni['totais'][row['periodo']]['pacientes'] += p
 
-        for _, row in grouped.iterrows():
-            taxa = (row['agendamentos'] / row['vagas_totais'] * 100) if row['vagas_totais'] > 0 else 0
-            item = {
-                'sala': row['sala'], 'periodo_detalhe': row['periodo'], 'especialidade': row['especialidade'],
-                'medico': row['nome_profissional'], 'ocupacao': int(row['agendamentos']), 
-                'vagas_grade': int(row['vagas_totais']), 'taxa_ocupacao': f"{taxa:.1f}%", 'taxa_num': taxa
-            }
-            if row['periodo'] in dados_uni:
-                dados_uni[row['periodo']].append(item)
-                dados_uni['totais'][row['periodo']]['grade'] += int(row['vagas_totais'])
-                dados_uni['totais'][row['periodo']]['pacientes'] += int(row['agendamentos'])
-        
-        for p in ['Manhã', 'Tarde']:
-            g_per = dados_uni['totais'][p]['grade']
-            p_per = dados_uni['totais'][p]['pacientes']
-            dados_uni['totais'][p]['taxa'] = (p_per / g_per * 100) if g_per > 0 else 0
-            dados_uni['totais']['dia']['grade'] += g_per
-            dados_uni['totais']['dia']['pacientes'] += p_per
+    # Totais consolidados
+    for per in ['Manhã', 'Tarde']:
+        g_t = dados_uni['totais'][per]['grade']
+        p_t = dados_uni['totais'][per]['pacientes']
+        dados_uni['totais'][per]['taxa'] = (p_t / g_t * 100) if g_t > 0 else 0
+        dados_uni['totais']['dia']['grade'] += g_t
+        dados_uni['totais']['dia']['pacientes'] += p_t
 
-        g_dia = dados_uni['totais']['dia']['grade']
-        p_dia = dados_uni['totais']['dia']['pacientes']
-        dados_uni['totais']['dia']['taxa'] = (p_dia / g_dia * 100) if g_dia > 0 else 0
-        master_data[unidade] = dados_uni
-        
+    g_d = dados_uni['totais']['dia']['grade']
+    p_d = dados_uni['totais']['dia']['pacientes']
+    dados_uni['totais']['dia']['taxa'] = (p_d / g_d * 100) if g_d > 0 else 0
+    
+    unidade_chave = unidade_id if unidade_id else "Geral"
+    master_data[unidade_chave] = dados_uni
+
     tpl = Environment(loader=FileSystemLoader('.')).get_template("templates/diario.html")
-    html = tpl.render(unidade=unidade_id or "Geral", all_data=master_data, date_str=start_date_str, 
-                      grand_total=int(df_final[df_final['agendamento_id']>0].shape[0]), 
+    html = tpl.render(unidade=unidade_chave, all_data=master_data, date_str=start_date_str, 
+                      grand_total=dados_uni['totais']['dia']['pacientes'], 
                       generated=datetime.now().strftime("%d/%m/%Y %H:%M"))
-    return {unidade_id: HTML(string=html).write_pdf()}
+    
+    return {unidade_chave: HTML(string=html).write_pdf()}

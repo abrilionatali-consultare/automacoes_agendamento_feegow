@@ -27,6 +27,17 @@ with col2:
     unidades_opcoes = list(df_unid['nome_fantasia'])
     unidade_sel = st.selectbox("Unidade", unidades_opcoes)
 
+if target_date_dt == date.today():
+    st.warning(
+        """
+        **⚠️ Atenção: Visualizando Data Atual**
+        
+        A API de disponibilidade remove da grade os horários que já passaram (ex: horários da manhã).
+        * **Consequência:** A coluna 'Grade' mostrará apenas o que *sobra* do dia, fazendo a taxa de ocupação parecer artificialmente alta (ex: 100%).
+        * **Recomendação:** Para ver a capacidade total real, gere o mapa para datas futuras (D+1).
+        """
+    )
+
 # 4. Botão de Ação
 botao = st.button("Gerar Mapa Diário")
 st.divider()

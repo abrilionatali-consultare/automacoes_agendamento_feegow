@@ -16,7 +16,12 @@
   .unit-badge { background: #eee; padding: 4px 8px; border-radius: 4px; font-weight: bold; color: #555; display: inline-block; margin-top: 4px; }
 
   /* TABELA */
-  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      margin-bottom: 20px; 
+  }
+  
   tr { page-break-inside: avoid; }
   thead { display: table-header-group; }
   
@@ -31,19 +36,40 @@
     text-transform: uppercase;
   }
 
-  td { border: 1px solid #ccc; padding: 5px; text-align: left; font-size: 10px; vertical-align: middle; }
-
-  tr.unit-header td {
-    background-color: #053F74; color: white; font-weight: 800; text-align: center;
-    text-transform: uppercase; font-size: 12px; padding: 8px; border: 1px solid #053F74;
+  td {
+    border: 1px solid #ccc;
+    padding: 5px;
+    text-align: left;
+    font-size: 10px;
+    vertical-align: middle;
   }
 
+  /* Cabeçalho da UNIDADE */
+  tr.unit-header td {
+    background-color: #053F74;
+    color: white;
+    font-weight: 800;
+    text-align: center;
+    text-transform: uppercase;
+    font-size: 12px;
+    padding: 8px;
+    border: 1px solid #053F74;
+  }
+
+  /* Cabeçalho do PERÍODO */
   tr.period-header td {
-    background-color: #daeef3; color: #053F74; font-weight: 800; text-align: center;
-    font-size: 11px; font-style: italic; border-top: 1px solid #053F74;
+    background-color: #daeef3;
+    color: #053F74;
+    font-weight: 800;
+    text-align: center;
+    font-size: 11px;
+    font-style: italic;
+    border-top: 1px solid #053F74;
   }
 
   tr.data-row:nth-child(even) { background-color: #f2f2f2; }
+
+  /* Formatação condicional para baixa ocupação */
   .low-occ-row { background-color: #FFF5EE !important; border-left: 4px solid #FFA07A; }
   .taxa-label { display: block; font-size: 9px; color: #666; font-weight: bold; margin-top: 2px; }
   
@@ -94,7 +120,9 @@
     {% for uni_nome, dados_uni in all_data.items() %}
       
       {% if all_data|length > 1 %}
-      <tr class="unit-header"><td colspan="6">{{ uni_nome }}</td></tr>
+      <tr class="unit-header">
+        <td colspan="6">{{ uni_nome }}</td>
+      </tr>
       {% endif %}
 
       {% for periodo in ['Manhã', 'Tarde'] %}
@@ -118,7 +146,7 @@
           {% endfor %}
           
            <tr class="total-row">
-              <td colspan="4" class="right">Total {{ periodo }}:</td>
+              <td colspan="4" class="right">Subtotal {{ periodo }}:</td>
               <td class="center">{{ dados_uni['totais'][periodo]['grade'] }}</td>
               <td class="center">{{ dados_uni['totais'][periodo]['pacientes'] }}</td>
            </tr>
