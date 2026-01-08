@@ -209,7 +209,8 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
     df_final, _ = normalize_and_validate(df)
     
     # Filtro de Salas Administrativas
-    remover = ['LABORATÓRIO', 'RAIO X', 'SALA DE VACINA', 'COLETA DOMICILIAR', 'VACINA', 'LABORATORIO']
+    # remover = ['LABORATÓRIO', 'RAIO X', 'SALA DE VACINA', 'COLETA DOMICILIAR', 'VACINA', 'LABORATORIO']
+    remover = ['COLETA DOMICILIAR']
     df_final = df_final[~df_final['sala'].str.upper().str.contains('|'.join(remover), na=False)]
     
     df_final['time'] = df_final['horario'].apply(to_time)
