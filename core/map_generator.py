@@ -52,6 +52,10 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
     df_ag = fetch_agendamentos(start_date=start_date_str, end_date=end_date_str, unidade_id=unidade_sel_id)
     if df_ag.empty: return {"warning": "Vazio"}
     
+    # Filtro de status válidos para mapa
+    required_status = [1, 7, 2, 3, 4]
+    df_ag = df_ag[df_ag['status_id'].isin(required_status)]
+    
     # Injeção de Grade
     profs_ativos = df_ag["profissional_id"].unique()
     all_slots = []
@@ -118,6 +122,10 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
     # 2. Busca Agendamentos
     df_ag = fetch_agendamentos(start_date=start_date_str, end_date=start_date_str, unidade_id=unidade_sel_id)
     if df_ag.empty: return {"warning": "Sem agendamentos para esta data."}
+
+    # Filtro de status válidos para mapa
+    required_status = [1, 7, 2, 3, 4]
+    df_ag = df_ag[df_ag['status_id'].isin(required_status)]
 
     # Tipagem forte
     for col in ['profissional_id', 'local_id', 'especialidade_id', 'agendamento_id']:

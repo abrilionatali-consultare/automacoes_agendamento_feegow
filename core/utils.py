@@ -59,10 +59,12 @@ def to_time(h):
             raise ValueError(f"Formato de horário inválido: {h}")
 
 def periodo_from_time(t: time):
-    """Define 'Manhã' se t.hour < 12, caso contrário 'Tarde'"""
+    """Retorna 'Manhã' se horário <= 12:00:00, caso contrário 'Tarde'"""
     if t is None:
         return None
-    return "Manhã" if t.hour < 12 else "Tarde"
+    
+    # Compara o horário completo com 12:00:00
+    return "Manhã" if t <= time(12, 0, 0) else "Tarde"
 
 def fmt_time(t):
     if t is None:

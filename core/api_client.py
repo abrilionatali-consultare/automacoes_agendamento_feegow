@@ -196,7 +196,7 @@ def _normalize_df(data, nested_key=None):
 # ==========================================================
 # API PÚBLICA PARA O STREAMLIT
 # ==========================================================
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=30)
 def fetch_agendamentos(unidade_id=None, start_date=None, end_date=None):
     """
     Busca agendamentos no período via API.
@@ -307,7 +307,7 @@ def get_patient_name_by_id(patient_id):
         return paciente.get('nome')
     return None
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=30)
 def fetch_agendamentos_completos(start_date, end_date, unidade_id=None):
     """
     Retorna agendamentos completos (com joins).

@@ -132,7 +132,7 @@
           </tr>
 
           {% for row in dados_uni[periodo] %}
-          <tr class="data-row {% if row.taxa_num < 50 %}low-occ-row{% endif %}">
+          <tr class="data-row {% if row.taxa_num < 80 %}low-occ-row{% endif %}">
             <td>{{ row.sala }}</td>
             <td>{{ row.periodo_detalhe }}</td>
             <td>{{ row.especialidade }}</td>
