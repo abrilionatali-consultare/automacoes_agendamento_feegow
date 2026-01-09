@@ -15,7 +15,7 @@
   .date-line { font-size: 14px; font-weight: 600; color: #229A8A; margin-top: 4px; }
   .unit-badge { background: #eee; padding: 4px 8px; border-radius: 4px; font-weight: bold; color: #555; display: inline-block; margin-top: 4px; }
 
-  /* TABELA */
+  /* TABELA GLOBAL */
   table { 
       width: 100%; 
       border-collapse: collapse; 
@@ -25,7 +25,8 @@
   tr { page-break-inside: avoid; }
   thead { display: table-header-group; }
   
-  th {
+  /* Cabeçalhos da Tabela Principal */
+  th.main-th {
     background-color: #053F74;
     color: white;
     font-weight: 700;
@@ -85,6 +86,40 @@
 
   .subtotal-taxa { font-size: 9px; color: #229A8A; font-weight: bold; }
   
+  /* ESTILOS DA TABELA DE SALAS (ANINHADA) */
+  .salas-container {
+      padding: 15px 5px 20px 5px !important; 
+      border: none !important; 
+      background-color: #fff !important;
+  }
+  .salas-box {
+      border: 1px solid #ddd;
+      padding: 10px;
+      background-color: #fcfcfc;
+      border-radius: 4px;
+  }
+  .salas-title {
+      margin: 0 0 10px 0;
+      color: #053F74;
+      text-transform: uppercase;
+      font-size: 11px;
+      font-weight: bold;
+      border-bottom: 2px solid #229A8A;
+      display: inline-block;
+  }
+  table.salas-table th {
+      background-color: #eee;
+      color: #333;
+      border: 1px solid #ccc;
+      text-align: center;
+      padding: 4px;
+  }
+  table.salas-table td {
+      text-align: center;
+      padding: 4px;
+  }
+  .good-rate { background-color: #d4edda; color: #155724; font-weight: bold; }
+  
   .footer {
       position: fixed; bottom: 0; width: 100%; text-align: right;
       font-size: 9px; color: #777; border-top: 1px solid #ddd; padding-top: 5px;
@@ -108,12 +143,12 @@
 <table>
   <thead>
     <tr>
-      <th style="width: 15%;">Sala</th>
-      <th style="width: 10%;">Período</th>
-      <th style="width: 20%;">Especialidade</th>
-      <th style="width: 35%;">Médico</th>
-      <th style="width: 10%;" class="center">Grade</th>
-      <th style="width: 10%;" class="center">Pacientes</th>
+      <th class="main-th" style="width: 15%;">Sala</th>
+      <th class="main-th" style="width: 10%;">Período</th>
+      <th class="main-th" style="width: 20%;">Especialidade</th>
+      <th class="main-th" style="width: 35%;">Médico</th>
+      <th class="main-th" style="width: 10%;" class="center">Grade</th>
+      <th class="main-th" style="width: 10%;" class="center">Pacientes</th>
     </tr>
   </thead>
   <tbody>
@@ -163,11 +198,50 @@
         <td class="center">{{ dados_uni['totais']['dia']['pacientes'] }}</td>
       </tr>
       <tr>
-        <td colspan="4" class="right" style="font-weight: bold; color: #053F74;">Taxa de Ocupação Diária:</td>
+        <td colspan="4" class="right" style="font-weight: bold; color: #053F74;">Taxa de Ocupação Diária (Agendamentos):</td>
         <td colspan="2" class="center" style="font-weight: bold; color: #053F74;">{{ "%.1f"|format(dados_uni['totais']['dia']['taxa']) }}%</td>
       </tr>
 
-    {% endfor %}
+      {% if dados_uni.metricas_salas %}
+      <tr>
+        <td colspan="6" class="salas-container">
+            <div class="salas-box">
+                <div class="salas-title">Ocupação da Estrutura Física (Salas)</div>
+                <table class="salas-table" style="width: 100%; margin-bottom: 0;">
+                    <thead>
+                        <tr>
+                            <th style="width: 40%; text-align: left;">Métrica</th>
+                            <th style="width: 20%;">Manhã</th>
+                            <th style="width: 20%;">Tarde</th>
+                            <th style="width: 20%;">Dia (Consolidado)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="text-align: left;"><strong>Salas Ativas / Total Disponível</strong></td>
+                            <td>{{ dados_uni.metricas_salas.ativas_manha }} / {{ dados_uni.metricas_salas.total_salas }}</td>
+                            <td>{{ dados_uni.metricas_salas.ativas_tarde }} / {{ dados_uni.metricas_salas.total_salas }}</td>
+                            <td>{{ dados_uni.metricas_salas.ativas_dia }} / {{ dados_uni.metricas_salas.total_salas }}</td>
+                        </tr>
+                        <tr>
+                            <td style="text-align: left;"><strong>Taxa de Ocupação Física</strong></td>
+                            <td class="{% if dados_uni.metricas_salas.taxa_manha >= 80 %}good-rate{% endif %}">
+                                {{ "%.1f"|format(dados_uni.metricas_salas.taxa_manha) }}%
+                            </td>
+                            <td class="{% if dados_uni.metricas_salas.taxa_tarde >= 80 %}good-rate{% endif %}">
+                                {{ "%.1f"|format(dados_uni.metricas_salas.taxa_tarde) }}%
+                            </td>
+                            <td class="{% if dados_uni.metricas_salas.taxa_dia >= 80 %}good-rate{% endif %}">
+                                {{ "%.1f"|format(dados_uni.metricas_salas.taxa_dia) }}%
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
   </tbody>
 </table>
 
