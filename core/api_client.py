@@ -226,6 +226,15 @@ def list_especialidades():
 def list_salas(unidade_id=None):
     raw = _call_endpoint("list-local")
     df = _normalize_df(raw, nested_key="content")
+    
+    salas_map_cambui = {
+        '4 CONSULTÓRIO - CENTRO': 'CONSULTÓRIO 4',
+        '6 CONSULTÓRIO ODONTO - CENTRO': 'CONSULTÓRIO 6',
+        '7 CONSULTÓRIO - CENTRO *': 'CONSULTÓRIO 7',
+        'CONSULTÓRIO 6 - ODONTOLOGIA': 'CONSULTÓRIO 6',
+    }
+
+    df['local'] = df['local'].map(salas_map_cambui).fillna(df['local'])
     return df
 
 @st.cache_data(ttl=3600)    
