@@ -219,7 +219,13 @@
   </tfoot>
 </table>
 
-<footer class="report-footer">Documento gerado automaticamente.</footer>
+{% if footer_text %}
+<div style="page-break-inside: avoid;">
+    <div style="width: 100%; margin-top: 25px; font-size: 9px; font-weight: bold; color: #856404; text-align: center; border: 1px solid #ffeeba; border-left: 5px solid #ffeeba; padding: 10px; background: #fff3cd; border-radius: 4px;">
+      ⚠️ ATENÇÃO: {{ footer_text }}
+    </div>
+</div>
+{% endif %}
 
 </body>
 </html>

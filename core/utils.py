@@ -162,7 +162,8 @@ def render_pdf_from_template(
     template_path,
     out_pdf_path=None,
     cell_font_size_px=10,
-    return_bytes=False
+    return_bytes=False,
+    footer_text=""  # Já estava aqui, correto.
 ):
     from jinja2 import Environment, FileSystemLoader, select_autoescape
     from weasyprint import HTML
@@ -174,8 +175,11 @@ def render_pdf_from_template(
     )
 
     # registra format_cell tanto como filtro quanto como global
-    env.filters["format_cell"] = format_cell
-    env.globals["format_cell"] = format_cell
+    # (Assumindo que format_cell está importado ou definido no escopo deste arquivo)
+    # Se der erro de 'format_cell not defined', certifique-se de importá-lo no topo do arquivo.
+    if 'format_cell' in globals():
+        env.filters["format_cell"] = format_cell
+        env.globals["format_cell"] = format_cell
 
     tpl = env.get_template(template_path)
 
@@ -200,7 +204,9 @@ def render_pdf_from_template(
         generated=datetime.now().strftime("%d/%m/%Y %H:%M"),
         day_names=day_names,
         cell_font_size_px=cell_font_size_px,
-        format_cell=format_cell
+        # Se format_cell não estiver no escopo global, remova a linha abaixo
+        format_cell=format_cell if 'format_cell' in globals() else None,
+        footer_text=footer_text  # <--- ADICIONE ESTA LINHA
     )
 
     # ➖➖➖➖➖➖➖
@@ -219,7 +225,6 @@ def render_pdf_from_template(
     HTML(string=html).write_pdf(out_pdf_path)
     print(f"PDF salvo em: {out_pdf_path}")
     return out_pdf_path
-
 
 # ---------------- helper para input do usuário ----------------
 def ask_week_start():

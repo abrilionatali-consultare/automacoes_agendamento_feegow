@@ -47,8 +47,6 @@ def _remove_blocked_slots(df_slots, start_date_str, end_date_str, unidade_id=Non
     if df_blocks.empty:
         return df_slots
 
-    print(f"DEBUG: Analisando bloqueios para {len(df_slots)} slots...")
-
     # 1. Preparação Robusta de Datas dos Slots
     # Tenta ler dayfirst=True (DD-MM-YYYY) padrão BR. Se falhar, tenta ISO.
     df_slots['_temp_date'] = pd.to_datetime(df_slots['data'], dayfirst=True, errors='coerce').dt.date
@@ -140,15 +138,114 @@ def _remove_blocked_slots(df_slots, start_date_str, end_date_str, unidade_id=Non
         
     return df_clean
 
+# ==============================================================================
+# RECONSTRUÇÃO HÍBRIDA (Passado Simulado + Futuro Real)
+# ==============================================================================
+def _fetch_grade_simulada(unidade_id, date_str, profissional_id, especialidade_id):
+    """
+    Abordagem Híbrida para o dia de "Hoje":
+    1. Horários < Agora: Usa o Espelho (D+7) para preencher o passado que a API esconde.
+    2. Horários >= Agora: Usa a API Real de hoje para precisão total.
+    """
+    # Conversão de datas
+    try:
+        dt_target = datetime.strptime(date_str, "%d-%m-%Y").date()
+    except ValueError:
+        return pd.DataFrame()
+        
+    dt_today = date.today()
+    now_time = datetime.now().time()
+    
+    # ---------------------------------------------------------
+    # CENÁRIO 1: Data Futura (Amanhã em diante)
+    # ---------------------------------------------------------
+    # Confia 100% na API Real. Não há passado para simular.
+    if dt_target > dt_today:
+        return fetch_horarios_disponiveis(unidade_id, date_str, date_str, profissional_id, especialidade_id=especialidade_id)
+
+    # ---------------------------------------------------------
+    # CENÁRIO 2: Data Passada (Ontem para trás)
+    # ---------------------------------------------------------
+    # A API Real retorna vazio. Precisamos simular 100% via Espelho.
+    # Define flag para usar apenas a lógica de espelho abaixo sem corte.
+    is_today = (dt_target == dt_today)
+    
+    # Prepara DataFrame final
+    df_combined = pd.DataFrame()
+
+    # =========================================================
+    # PARTE A: BUSCA DO ESPELHO (Para Passado ou Híbrido-Passado)
+    # =========================================================
+    # Tenta D+7 ou D+14
+    mirrors = [dt_target + timedelta(days=7), dt_target + timedelta(days=14)]
+    df_mirror = pd.DataFrame()
+    
+    for mirror_date in mirrors:
+        m_str = mirror_date.strftime("%d-%m-%Y")
+        raw_mirror = fetch_horarios_disponiveis(unidade_id, m_str, m_str, profissional_id, especialidade_id=especialidade_id)
+        if not raw_mirror.empty:
+            df_mirror = raw_mirror.copy()
+            break
+            
+    if not df_mirror.empty:
+        # Traz para a data alvo
+        df_mirror['data'] = date_str
+        
+        if is_today:
+            # FILTRO DO PASSADO: Mantém apenas o que já aconteceu (horario < agora)
+            # Converte para time object para comparar
+            temp_times = pd.to_datetime(df_mirror['horario'], format="%H:%M:%S", errors='coerce').dt.time
+            df_mirror = df_mirror[temp_times < now_time]
+        
+        # Adiciona ao combinado
+        df_combined = pd.concat([df_combined, df_mirror], ignore_index=True)
+
+    # =========================================================
+    # PARTE B: BUSCA REAL (Apenas se for HOJE)
+    # =========================================================
+    if is_today:
+        # Busca o que a API tem de verdade para agora/hoje
+        df_real = fetch_horarios_disponiveis(unidade_id, date_str, date_str, profissional_id, especialidade_id=especialidade_id)
+        
+        if not df_real.empty:
+            # FILTRO DO FUTURO: Mantém apenas o que é daqui pra frente (horario >= agora)
+            # A API já deve trazer só futuro, mas garantimos para evitar duplicação na borda
+            temp_times_real = pd.to_datetime(df_real['horario'], format="%H:%M:%S", errors='coerce').dt.time
+            df_real = df_real[temp_times_real >= now_time]
+            
+            df_combined = pd.concat([df_combined, df_real], ignore_index=True)
+
+    # =========================================================
+    # PARTE C: FINALIZAÇÃO
+    # =========================================================
+    if df_combined.empty:
+        return df_combined
+
+    # Ordena por horário para o mapa ficar bonito
+    if 'horario' in df_combined.columns:
+        df_combined = df_combined.sort_values(by='horario')
+
+    # Remove duplicatas (caso a borda do tempo tenha gerado overlap)
+    df_combined.drop_duplicates(subset=['horario', 'profissional_id'], inplace=True)
+
+    # Aplica os bloqueios de HOJE (Segurança final)
+    df_final = _remove_blocked_slots(df_combined, date_str, date_str, unidade_id=unidade_id)
+    
+    return df_final
+
 def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"):
     """
-    Função de Mapa Semanal (Mantida a lógica funcional e limpa).
+    Função de Mapa Semanal com suporte à Busca Híbrida (Simulação de Passado + Futuro Real).
     """
     start_date_str = start_date if isinstance(start_date, str) else start_date.strftime("%d-%m-%Y")
     df_unid_list = list_unidades()
 
-    start_dt = datetime.strptime(start_date_str, "%d-%m-%Y")
-    end_date_str = (start_dt + timedelta(days=6)).strftime("%d-%m-%Y")
+    # Datas de controle
+    start_dt = datetime.strptime(start_date_str, "%d-%m-%Y").date()
+    end_dt = start_dt + timedelta(days=6)
+    end_date_str = end_dt.strftime("%d-%m-%Y")
+    today = date.today()
+
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -158,25 +255,68 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
         if not filtro.empty:
             unidade_sel_id = int(filtro['unidade_id'].iloc[0])
 
-    # Busca dados
+    # 1. Busca Agendamentos (Dados Reais)
     df_ag = fetch_agendamentos(start_date=start_date_str, end_date=end_date_str, unidade_id=unidade_sel_id)
     if df_ag.empty: return {"warning": "Vazio"}
     
-    # Filtro de status válidos para mapa
+    # Filtro de status válidos
     required_status = [1, 7, 2, 3, 4]
     df_ag = df_ag[df_ag['status_id'].isin(required_status)]
     
-    # Injeção de Grade
+    # 2. Injeção de Grade (Lógica Híbrida vs Padrão)
     profs_ativos = df_ag["profissional_id"].unique()
     all_slots = []
+    
+    # ==============================================================================
+    # 🛑 CONFIGURAÇÃO: DEFINA COMO 'False' PARA DESATIVAR A BUSCA POR ESPELHO
+    # ==============================================================================
+    USAR_BUSCA_HIBRIDA = True  
+    # ==============================================================================
+
     for p_id in profs_ativos:
         p_int = int(p_id)
         sid = get_main_specialty_id(p_int)
+        
         if sid:
-            vagas = fetch_horarios_disponiveis(unidade_sel_id, start_date_str, end_date_str, p_int, especialidade_id=int(sid))
-            if not vagas.empty:
-                vagas['agendamento_id'], vagas['status_id'] = 0, 0 
-                all_slots.append(vagas)
+            # --- CAMINHO A: LÓGICA HÍBRIDA (Recupera Passado + Pega Futuro) ---
+            if USAR_BUSCA_HIBRIDA:
+                # 1. Dias Passados ou Hoje (Requer Simulação/Espelho)
+                # Iteramos dia a dia até chegar em "Amanhã" ou no fim do intervalo
+                current_loop_dt = start_dt
+                
+                while current_loop_dt <= end_dt and current_loop_dt <= today:
+                    loop_str = current_loop_dt.strftime("%d-%m-%Y")
+                    
+                    # Chama a função de espelho para este dia
+                    v_sim = _fetch_grade_simulada(
+                        unidade_sel_id, loop_str, p_int, especialidade_id=int(sid)
+                    )
+                    
+                    if not v_sim.empty:
+                        v_sim['agendamento_id'], v_sim['status_id'] = 0, 0
+                        all_slots.append(v_sim)
+                    
+                    current_loop_dt += timedelta(days=1)
+                
+                # 2. Dias Futuros (Amanhã em diante) - Otimização com chamada única
+                if current_loop_dt <= end_dt:
+                    future_start_str = current_loop_dt.strftime("%d-%m-%Y")
+                    
+                    v_future = fetch_horarios_disponiveis(
+                        unidade_sel_id, future_start_str, end_date_str, p_int, especialidade_id=int(sid)
+                    )
+                    if not v_future.empty:
+                        v_future['agendamento_id'], v_future['status_id'] = 0, 0
+                        all_slots.append(v_future)
+
+            # --- CAMINHO B: LÓGICA PADRÃO (Apenas API Real - Passado virá vazio) ---
+            else:
+                vagas = fetch_horarios_disponiveis(
+                    unidade_sel_id, start_date_str, end_date_str, p_int, especialidade_id=int(sid)
+                )
+                if not vagas.empty:
+                    vagas['agendamento_id'], vagas['status_id'] = 0, 0 
+                    all_slots.append(vagas)
 
     # União
     if all_slots:
@@ -186,7 +326,7 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
     else:
         df = df_ag.copy()
 
-    # Aplica filtro de bloqueios
+    # Aplica filtro de bloqueios (Crucial para limpar a grade simulada se houver bloqueio real)
     df = _remove_blocked_slots(df, start_date_str, end_date_str, unidade_id=unidade_sel_id)
     if df.empty: return {"warning": "Todos os horários estão bloqueados."}
 
@@ -215,11 +355,36 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
 
     # Geração
     out_bytes = {}
+
+    nota_rodape = "" # Padrão: Vazio
+
+    # Se a semana começa HOJE ou no PASSADO, haverá simulação.
+    # Se a semana começa AMANHÃ (start_dt > today), é 100% futuro/real -> Sem nota.
+    if start_dt <= today:
+        now = datetime.now()
+        timestamp = now.strftime('%d/%m/%Y às %H:%M')
+        hora_corte = now.strftime('%H:%M')
+        
+        nota_rodape = (
+            f"Relatório gerado em {timestamp}. "
+            f"Para datas passadas e horários de hoje anteriores a {hora_corte}, "
+            f"as grades são simuladas baseados na próxima agenda (D+7). "
+            f"Datas futuras e horários de hoje após {hora_corte} utilizam dados reais da API."
+        )
+
     for unidade in df_final["unidade"].unique():
         if not unidade: continue
+        
+        # Filtra e gera
         matrices, occ, days = build_matrices(df_final[df_final["unidade"] == unidade], include_taxa=False)
-        pdf_bytes = render_pdf_from_template(unidade, matrices, occ, days, start_date_str, end_date_str, "templates/semanal2.html", cell_font_size_px=9, return_bytes=True)
+        
+        pdf_bytes = render_pdf_from_template(
+            unidade, matrices, occ, days, start_date_str, end_date_str, 
+            "templates/semanal2.html", cell_font_size_px=9, return_bytes=True,
+            footer_text=nota_rodape 
+        )
         out_bytes[unidade] = pdf_bytes
+        
     return out_bytes
 
 def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados"):
@@ -266,10 +431,13 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
             if sid_main: specs_do_dia = [sid_main]
             
         for sid in specs_do_dia:
-            v_df = fetch_horarios_disponiveis(
+            # ====================
+            # IMPLEMENTAÇÃO DA BUSCA HÍBRIDA PARA DADOS RETROATIVOS
+            # Para desativar, substituir pela chamada direta à API: fetch_horarios_disponiveis(...)
+            # ====================
+            v_df = _fetch_grade_simulada(
                 unidade_id=unidade_sel_id,
-                data_start=start_date_str, 
-                data_end=start_date_str, 
+                date_str=start_date_str, # Passamos apenas a data do dia
                 profissional_id=p_int, 
                 especialidade_id=int(sid)
             )
@@ -444,9 +612,32 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
     unidade_chave = unidade_id if unidade_id else "Geral"
     master_data[unidade_chave] = dados_uni
 
+    dt_target = datetime.strptime(start_date_str, "%d-%m-%Y").date()
+    today = date.today()
+    
+    nota_rodape = "" # Padrão: Vazio (Para datas futuras)
+
+    # Só exibe o aviso se for HOJE ou PASSADO (onde ocorre simulação)
+    if dt_target <= today:
+        now = datetime.now()
+        timestamp = now.strftime('%d/%m/%Y às %H:%M')
+        hora_corte = now.strftime('%H:%M')
+        
+        nota_rodape = (
+            f"Relatório gerado em {timestamp}. "
+            f"Horários anteriores a {hora_corte} são simulados baseados na próxima agenda (D+7). "
+            f"Dados após {hora_corte} refletem informações reais da API."
+        )
+
     tpl = Environment(loader=FileSystemLoader('.')).get_template("templates/diario.html")
-    html = tpl.render(unidade=unidade_chave, all_data=master_data, date_str=start_date_str, 
-                      grand_total=dados_uni['totais']['dia']['pacientes'], 
-                      generated=datetime.now().strftime("%d/%m/%Y %H:%M"))
+    
+    html = tpl.render(
+        unidade=unidade_chave, 
+        all_data=master_data, 
+        date_str=start_date_str, 
+        grand_total=dados_uni['totais']['dia']['pacientes'], 
+        generated=datetime.now().strftime("%d/%m/%Y %H:%M"), # Mantém gerado em sempre visível no cabeçalho se houver
+        footer_text=nota_rodape  # <--- Vazio se for futuro, Texto se for hoje/passado
+    )
     
     return {unidade_chave: HTML(string=html).write_pdf()}
