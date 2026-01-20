@@ -231,3 +231,5 @@ def ask_week_start():
             return dt
         except Exception as e:
             print("Formato inválido. Use DD-MM-AAAA (ex.: 01-12-2025). Tente novamente.")
+
+

@@ -276,6 +276,62 @@ def list_unidades():
             
     return df
 
+#@st.cache_data(ttl=300)
+def list_blocks(unidade_id=None, start_date=None, end_date=None, profissional_id=None):
+    """
+    Busca bloqueios de agenda.
+    DICA: Para ver bloqueios globais (feriados, férias), NÃO envie unidade_id (deixe None).
+    """
+    ctx = {}
+    
+    # 1. Tratamento de Datas (Formatos BR ou ISO)
+    def parse_to_date(d_input, default):
+        if not d_input: return default
+        if isinstance(d_input, str):
+            for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+                try: return datetime.strptime(d_input, fmt).date()
+                except ValueError: continue
+            return d_input # Retorna bruto se falhar
+        if isinstance(d_input, datetime): return d_input.date()
+        return d_input
+
+    dt_start = parse_to_date(start_date, date.today())
+    dt_end = parse_to_date(end_date, dt_start + timedelta(days=30))
+
+    # Converte para ISO (obrigatório da API)
+    ctx['date_start'] = dt_start.strftime("%Y-%m-%d")
+    ctx['date_end'] = dt_end.strftime("%Y-%m-%d")
+
+    # 2. INJEÇÃO DINÂMICA (Só envia se não for None)
+    # Se você passar unidade_id=12, ele filtra. Se passar None, traz os globais.
+    if unidade_id is not None:
+        ctx['unidade_id'] = int(unidade_id)
+        
+    if profissional_id is not None:
+        ctx['profissional_id'] = int(profissional_id)
+
+    try:
+        # Chama o endpoint (agora com params dinâmicos)
+        raw = _call_endpoint('list-blocks', context=ctx)
+        df = _normalize_df(raw, nested_key='content')
+        
+        if not df.empty:
+            # Normaliza colunas de data para datetime
+            for col in ['date_start', 'date_end']:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+            
+            # Normaliza horários (cria time objects para comparação posterior)
+            for col in ['time_start', 'time_end']:
+                if col in df.columns:
+                     df[col] = pd.to_datetime(df[col], format='%H:%M:%S', errors='coerce').dt.time
+            
+        return df
+        
+    except Exception as e:
+        print(f"Erro list_blocks: {e}")
+        return pd.DataFrame()
+
 # ===================================
 # CONSULTA DE PACIENTES
 # ===================================

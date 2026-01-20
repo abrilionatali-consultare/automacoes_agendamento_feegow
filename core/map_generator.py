@@ -12,7 +12,8 @@ from core.api_client import (
     list_salas,
     list_unidades,
     fetch_horarios_disponiveis,
-    get_main_specialty_id
+    get_main_specialty_id,
+    list_blocks
 )
 
 from core.utils import (
@@ -29,6 +30,115 @@ df_prof = list_profissionals()
 df_esp = list_especialidades()
 df_loc = list_salas()
 df_unid = list_unidades()
+
+# ==============================================================================
+# FUNÇÃO AUXILIAR DE FILTRO DE BLOQUEIOS
+# ==============================================================================
+def _remove_blocked_slots(df_slots, start_date_str, end_date_str, unidade_id=None):
+    """
+    Remove linhas do DataFrame que coincidem com períodos de bloqueio.
+    Versão Blindada: Corrige tipagem de unidades (str/int) e datas.
+    """
+    if df_slots.empty:
+        return df_slots
+
+    df_blocks = list_blocks(start_date=start_date_str, end_date=end_date_str)
+    
+    if df_blocks.empty:
+        return df_slots
+
+    print(f"DEBUG: Analisando bloqueios para {len(df_slots)} slots...")
+
+    # 1. Preparação Robusta de Datas dos Slots
+    # Tenta ler dayfirst=True (DD-MM-YYYY) padrão BR. Se falhar, tenta ISO.
+    df_slots['_temp_date'] = pd.to_datetime(df_slots['data'], dayfirst=True, errors='coerce').dt.date
+    # Fallback: Se gerou NaT (Not a Time), tenta forçar formato ISO
+    mask_nat = df_slots['_temp_date'].isna()
+    if mask_nat.any():
+        df_slots.loc[mask_nat, '_temp_date'] = pd.to_datetime(df_slots.loc[mask_nat, 'data'], errors='coerce').dt.date
+        
+    df_slots['_temp_time'] = pd.to_datetime(df_slots['horario'], format="%H:%M:%S", errors='coerce').dt.time
+    
+    if 'profissional_id' in df_slots.columns:
+        df_slots['profissional_id'] = pd.to_numeric(df_slots['profissional_id'], errors='coerce').fillna(0).astype(int)
+
+    # 2. Máscara de Exclusão
+    mask_exclude = pd.Series([False] * len(df_slots), index=df_slots.index)
+
+    # Garante que a unidade alvo seja Inteiro (se existir)
+    target_unit = int(unidade_id) if unidade_id else None
+
+    for _, block in df_blocks.iterrows():
+        # --- A. VERIFICAÇÃO DE UNIDADE (CORRIGIDA) ---
+        block_units = block.get('units')
+        
+        should_apply_block = False
+        
+        if target_unit is None:
+            # Se não estamos filtrando por unidade (Mapa Geral), aplica todos os bloqueios
+            should_apply_block = True
+        else:
+            # Estamos gerando mapa para Unidade X. O bloqueio se aplica a X?
+            
+            # Cenário 1: Lista de Unidades
+            if isinstance(block_units, list) and len(block_units) > 0:
+                # [CORREÇÃO CRÍTICA]: Converte a lista do bloqueio para inteiros para garantir
+                # Isso resolve o caso de ["12"] vs 12
+                clean_units = []
+                for u in block_units:
+                    try: clean_units.append(int(u))
+                    except: pass
+                
+                if target_unit in clean_units or 0 in clean_units:
+                    should_apply_block = True
+            
+            # Cenário 2: Fallback (Coluna antiga unidade_id)
+            else:
+                legacy_uid = block.get('unidade_id')
+                try:
+                    legacy_uid = int(legacy_uid) if legacy_uid is not None else 0
+                except:
+                    legacy_uid = 0
+                
+                if legacy_uid == 0 or legacy_uid == target_unit:
+                    should_apply_block = True
+
+        if not should_apply_block:
+            continue
+
+        # --- B. Verifica Data (Segura) ---
+        # block['date_start'] já vem como date object do list_blocks
+        m_date = (df_slots['_temp_date'] >= block['date_start']) & (df_slots['_temp_date'] <= block['date_end'])
+        
+        if not m_date.any(): continue
+
+        # --- C. Verifica Horário ---
+        blk_start = block['time_start'] if pd.notnull(block.get('time_start')) else time(0,0)
+        blk_end = block['time_end'] if pd.notnull(block.get('time_end')) else time(23,59,59)
+        
+        m_time = (df_slots['_temp_time'] >= blk_start) & (df_slots['_temp_time'] <= blk_end)
+        
+        # --- D. Verifica Profissional ---
+        blk_prof = int(block['professional_id']) if pd.notnull(block.get('professional_id')) else 0
+        
+        if blk_prof > 0:
+            m_prof = (df_slots['profissional_id'] == blk_prof)
+        else:
+            m_prof = True # Afeta todos
+
+        # Combina
+        current_mask = m_date & m_time & m_prof
+        mask_exclude = mask_exclude | current_mask
+
+    # 3. Limpeza
+    df_clean = df_slots[~mask_exclude].copy()
+    df_clean.drop(columns=['_temp_date', '_temp_time'], inplace=True, errors='ignore')
+    
+    removidos = mask_exclude.sum()
+    if removidos > 0:
+        print(f"DEBUG: 🛡️ Bloqueio ativo! {removidos} slots da médica/unidade foram removidos.")
+        
+    return df_clean
 
 def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"):
     """
@@ -75,6 +185,10 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
         df['especialidade_id'] = df.groupby(['profissional_id', 'local_id'])['especialidade_id'].transform(lambda x: x.ffill().bfill())
     else:
         df = df_ag.copy()
+
+    # Aplica filtro de bloqueios
+    df = _remove_blocked_slots(df, start_date_str, end_date_str, unidade_id=unidade_sel_id)
+    if df.empty: return {"warning": "Todos os horários estão bloqueados."}
 
     # Merges
     df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
@@ -179,6 +293,10 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
         df = pd.concat([df_ag, df_grade], ignore_index=True)
     else:
         df = df_ag.copy()
+
+    # Aplica filtro de bloqueios
+    df = _remove_blocked_slots(df, start_date_str, start_date_str, unidade_id=unidade_sel_id)
+    if df.empty: return {"warning": "Todos os agendamentos/vagas coincidem com bloqueios de agenda."}
 
     # ==============================================================================
     # [PASSO 1] RECUPERAÇÃO E SANEAMENTO DE DADOS (Antes do Merge)

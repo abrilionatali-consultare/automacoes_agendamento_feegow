@@ -57,3 +57,13 @@ endpoints:
       data_start: "{data_start}"  # A API exige data_start, não data_inicio
       data_end: "{data_end}"
       tipo: "{tipo}"
+
+  - name: list-blocks
+    description: "Lista bloqueios de agenda"
+    url: "https://api.feegow.com/v1/api/lock/list"
+    method: "GET"
+    needs_body: true
+    use_post_for_body: false
+    body_template:
+      date_start: "{date_start}"
+      date_end: "{date_end}"
