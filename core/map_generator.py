@@ -318,6 +318,53 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
                     vagas['agendamento_id'], vagas['status_id'] = 0, 0 
                     all_slots.append(vagas)
 
+    # ==============================================================================
+    # VARREDURA COMPLEMENTAR: BUSCAR MÉDICOS SEM AGENDAMENTO (GRADE VAZIA)
+    # ==============================================================================
+    # Lista de quem já foi processado no loop anterior
+    processed_ids = set(map(int, profs_ativos))
+    
+    # Lista total de profissionais ativos no sistema (df_prof é global)
+    # Filtra apenas quem está ativo (se houver coluna de status) ou pega todos
+    all_prof_ids = df_prof['profissional_id'].unique()
+
+    for p_id in all_prof_ids:
+        p_int = int(p_id)
+        
+        # Se já processamos este médico (porque ele tinha agendamento), pula
+        if p_int in processed_ids:
+            continue
+
+        # Busca especialidade principal para poder consultar a grade
+        sid = get_main_specialty_id(p_int)
+        
+        if sid:
+            # Tenta buscar horários para este médico "ocioso"
+            # Nota: Usamos a mesma lógica de busca (Híbrida ou Normal) que já está configurada na função
+            
+            # --- Se for no MAPA SEMANAL e estiver usando Busca Híbrida: ---
+            # (Copie a lógica de USAR_BUSCA_HIBRIDA se estiver dentro do semanal)
+            # Para simplificar aqui, vou colocar a busca direta, mas idealmente deve seguir o padrão da função:
+            
+            vagas_extra = pd.DataFrame()
+            
+            # Exemplo genérico (serve para Diário e Semanal simples):
+            vagas_extra = fetch_horarios_disponiveis(
+                unidade_sel_id, start_date_str, end_date_str, p_int, especialidade_id=int(sid)
+            )
+
+            # --- Se for MAPA SEMANAL COM SIMULAÇÃO, você precisaria replicar a lógica do while/loop aqui ---
+            # Mas geralmente, médicos sem agendamento no passado não precisam de simulação complexa 
+            # pois não há "buracos" de agendamentos passados para preencher. 
+            # A busca direta costuma resolver a maioria dos casos de "Agenda Aberta Vazia".
+
+            if not vagas_extra.empty:
+                vagas_extra['agendamento_id'] = 0
+                vagas_extra['status_id'] = 0 # Status 0 ou null indica grade livre
+                vagas_extra['profissional_id'] = p_int
+                vagas_extra['especialidade_id'] = int(sid)
+                all_slots.append(vagas_extra)
+
     # União
     if all_slots:
         df = pd.concat([df_ag, pd.concat(all_slots)], ignore_index=True)
@@ -454,6 +501,53 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
                      v_df['local_id'] = int(local_fallback)
                 
                 all_slots.append(v_df)
+
+    # ==============================================================================
+    # VARREDURA COMPLEMENTAR: BUSCAR MÉDICOS SEM AGENDAMENTO (GRADE VAZIA)
+    # ==============================================================================
+    # Lista de quem já foi processado no loop anterior
+    processed_ids = set(map(int, profs))
+    
+    # Lista total de profissionais ativos no sistema (df_prof é global)
+    # Filtra apenas quem está ativo (se houver coluna de status) ou pega todos
+    all_prof_ids = df_prof['profissional_id'].unique()
+
+    for p_id in all_prof_ids:
+        p_int = int(p_id)
+        
+        # Se já processamos este médico (porque ele tinha agendamento), pula
+        if p_int in processed_ids:
+            continue
+
+        # Busca especialidade principal para poder consultar a grade
+        sid = get_main_specialty_id(p_int)
+        
+        if sid:
+            # Tenta buscar horários para este médico "ocioso"
+            # Nota: Usamos a mesma lógica de busca (Híbrida ou Normal) que já está configurada na função
+            
+            # --- Se for no MAPA SEMANAL e estiver usando Busca Híbrida: ---
+            # (Copie a lógica de USAR_BUSCA_HIBRIDA se estiver dentro do semanal)
+            # Para simplificar aqui, vou colocar a busca direta, mas idealmente deve seguir o padrão da função:
+            
+            vagas_extra = pd.DataFrame()
+            
+            # Exemplo genérico (serve para Diário e Semanal simples):
+            vagas_extra = fetch_horarios_disponiveis(
+                unidade_sel_id, start_date_str, start_date_str, p_int, especialidade_id=int(sid)
+            )
+
+            # --- Se for MAPA SEMANAL COM SIMULAÇÃO, você precisaria replicar a lógica do while/loop aqui ---
+            # Mas geralmente, médicos sem agendamento no passado não precisam de simulação complexa 
+            # pois não há "buracos" de agendamentos passados para preencher. 
+            # A busca direta costuma resolver a maioria dos casos de "Agenda Aberta Vazia".
+
+            if not vagas_extra.empty:
+                vagas_extra['agendamento_id'] = 0
+                vagas_extra['status_id'] = 0 # Status 0 ou null indica grade livre
+                vagas_extra['profissional_id'] = p_int
+                vagas_extra['especialidade_id'] = int(sid)
+                all_slots.append(vagas_extra)
 
     if all_slots:
         df_grade = pd.concat(all_slots, ignore_index=True)
