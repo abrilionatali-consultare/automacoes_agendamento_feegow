@@ -572,7 +572,6 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
             # A busca direta costuma resolver a maioria dos casos de "Agenda Aberta Vazia".
 
             if not vagas_extra.empty:
-                print(vagas_extra.head(10))
                 # 1. Busca o nome da especialidade no df_esp global usando o sid
                 # Filtramos pela coluna ID e pegamos o valor da coluna de texto (nome ou especialidade)
                 col_texto_esp = 'especialidade' if 'especialidade' in df_esp.columns else 'nome'
