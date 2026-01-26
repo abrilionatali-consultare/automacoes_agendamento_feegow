@@ -379,18 +379,30 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
 
     df['especialidade_id'] = pd.to_numeric(df['especialidade_id'], errors='coerce').fillna(0).astype(int)
     df['profissional_id'] = pd.to_numeric(df['profissional_id'], errors='coerce').fillna(0).astype(int)
+    df['local_id'] = pd.to_numeric(df['local_id'], errors='coerce').fillna(0).astype(int)
 
     mapa_esp = df_esp.set_index('especialidade_id')['nome'].to_dict()
+    mapa_loc = df_loc.set_index('id')['local'].to_dict()
+    mapa_prof = df_prof.set_index('profissional_id')['nome'].to_dict()
 
     if 'especialidade' not in df.columns:
         df['especialidade'] = df['especialidade_id'].map(mapa_esp)
     else:
         df['especialidade'] = df['especialidade'].fillna(df['especialidade_id'].map(mapa_esp))
 
-    # Merges
+    if 'sala' not in df.columns:
+        df['sala'] = df['local_id'].map(mapa_loc)
+    else:
+        df['sala'] = df['sala'].fillna(df['local_id'].map(mapa_loc))
+
+    if 'nome_profissional' not in df.columns:
+        df['nome_profissional'] = df['profissional_id'].map(mapa_prof)
+    else:
+        df['nome_profissional'] = df['nome_profissional'].fillna(df['profissional_id'].map(mapa_prof))
+
     # df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
-    df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
-    df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
+    # df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
+    # df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
 
     for col in ['especialidade', 'nome_profissional', 'sala']:
         if col in df.columns:
@@ -604,9 +616,9 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
     # ==============================================================================
     
     # 1. Garante que IDs sejam numéricos
-    df['profissional_id'] = pd.to_numeric(df['profissional_id'], errors='coerce').fillna(0).astype(int)
-    if 'especialidade_id' not in df.columns: df['especialidade_id'] = 0
     df['especialidade_id'] = pd.to_numeric(df['especialidade_id'], errors='coerce').fillna(0).astype(int)
+    df['profissional_id'] = pd.to_numeric(df['profissional_id'], errors='coerce').fillna(0).astype(int)
+    df['local_id'] = pd.to_numeric(df['local_id'], errors='coerce').fillna(0).astype(int)
 
     # 2. Remove imediatamente linhas sem médico (profissional_id == 0)
     # Se não tem ID de médico, é lixo de base e não serve para o mapa.
@@ -632,15 +644,27 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
     # ==============================================================================
     # 5. Merges (Agora com IDs mais limpos)
     mapa_esp = df_esp.set_index('especialidade_id')['nome'].to_dict()
+    mapa_loc = df_loc.set_index('id')['local'].to_dict()
+    mapa_prof = df_prof.set_index('profissional_id')['nome'].to_dict()
 
     if 'especialidade' not in df.columns:
         df['especialidade'] = df['especialidade_id'].map(mapa_esp)
     else:
         df['especialidade'] = df['especialidade'].fillna(df['especialidade_id'].map(mapa_esp))
 
+    if 'sala' not in df.columns:
+        df['sala'] = df['local_id'].map(mapa_loc)
+    else:
+        df['sala'] = df['sala'].fillna(df['local_id'].map(mapa_loc))
+
+    if 'nome_profissional' not in df.columns:
+        df['nome_profissional'] = df['profissional_id'].map(mapa_prof)
+    else:
+        df['nome_profissional'] = df['nome_profissional'].fillna(df['profissional_id'].map(mapa_prof))
+
     # df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
-    df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
-    df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
+    # df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
+    # df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
 
     # ==============================================================================
     # [PASSO 2] LIMPEZA FINAL (Pós-Merge)
