@@ -377,10 +377,27 @@ def generate_weekly_maps(start_date, unidade_id=None, output_dir="mapas_gerados"
     df = _remove_blocked_slots(df, start_date_str, end_date_str, unidade_id=unidade_sel_id)
     if df.empty: return {"warning": "Todos os horários estão bloqueados."}
 
+    df['especialidade_id'] = pd.to_numeric(df['especialidade_id'], errors='coerce').fillna(0).astype(int)
+    df['profissional_id'] = pd.to_numeric(df['profissional_id'], errors='coerce').fillna(0).astype(int)
+
+    mapa_esp = df_esp.set_index('especialidade_id')['nome'].to_dict()
+
+    if 'especialidade' not in df.columns:
+        df['especialidade'] = df['especialidade_id'].map(mapa_esp)
+    else:
+        df['especialidade'] = df['especialidade'].fillna(df['especialidade_id'].map(mapa_esp))
+
     # Merges
-    df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
+    # df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
     df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
     df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
+
+    for col in ['especialidade', 'nome_profissional', 'sala']:
+        if col in df.columns:
+            df[col] = df[col].replace({'nan': None, 'NAN': None, 'NaN': None})
+            # Preenchimento final de segurança
+            fallback = "Indefinido" if col != 'especialidade' else "Especialidade"
+            df[col] = df[col].fillna(fallback)
     
     # Normalização
     df_final, _ = normalize_and_validate(df)
@@ -543,10 +560,32 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
             # A busca direta costuma resolver a maioria dos casos de "Agenda Aberta Vazia".
 
             if not vagas_extra.empty:
+                print(vagas_extra.head(10))
+                # 1. Busca o nome da especialidade no df_esp global usando o sid
+                # Filtramos pela coluna ID e pegamos o valor da coluna de texto (nome ou especialidade)
+                col_texto_esp = 'especialidade' if 'especialidade' in df_esp.columns else 'nome'
+                esp_match = df_esp[df_esp['especialidade_id'] == int(sid)]
+                nome_especialidade = str(esp_match[col_texto_esp].iloc[0]) if not esp_match.empty else "Especialidade"
+
+                # 2. Busca o nome do profissional no df_prof global para evitar NaN lá também
+                prof_match = df_prof[df_prof['profissional_id'] == p_int]
+                nome_profissional = str(prof_match['nome'].iloc[0]) if not prof_match.empty else f"Prof. ID {p_int}"
+
+                # 3. Preenche o DataFrame de forma "blindada"
+                vagas_extra = vagas_extra.copy()
                 vagas_extra['agendamento_id'] = 0
-                vagas_extra['status_id'] = 0 # Status 0 ou null indica grade livre
+                vagas_extra['status_id'] = 0
                 vagas_extra['profissional_id'] = p_int
                 vagas_extra['especialidade_id'] = int(sid)
+                
+                # Injeta os nomes textuais (isso impede o NaN no mapa)
+                vagas_extra['profissional'] = nome_profissional
+                vagas_extra['especialidade'] = nome_especialidade
+
+                # Garante que a coluna 'local_id' existe (necessário para o mapa diário)
+                if 'local_id' not in vagas_extra.columns:
+                    vagas_extra['local_id'] = 0
+
                 all_slots.append(vagas_extra)
 
     if all_slots:
@@ -591,9 +630,15 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
         df.loc[mask_sem_spec, 'especialidade_id'] = df.loc[mask_sem_spec].apply(recuperar_spec, axis=1)
 
     # ==============================================================================
-
     # 5. Merges (Agora com IDs mais limpos)
-    df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
+    mapa_esp = df_esp.set_index('especialidade_id')['nome'].to_dict()
+
+    if 'especialidade' not in df.columns:
+        df['especialidade'] = df['especialidade_id'].map(mapa_esp)
+    else:
+        df['especialidade'] = df['especialidade'].fillna(df['especialidade_id'].map(mapa_esp))
+
+    # df = df.merge(df_esp[['especialidade_id', 'nome']], on="especialidade_id", how="left").rename(columns={'nome': 'especialidade'})
     df = df.merge(df_prof[['profissional_id', 'nome']], on="profissional_id", how="left").rename(columns={'nome': 'nome_profissional'})
     df = df.merge(df_loc[['id', 'local']], left_on="local_id", right_on="id", how="left").rename(columns={'local': 'sala'})
 
