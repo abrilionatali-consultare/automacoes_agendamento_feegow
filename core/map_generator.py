@@ -754,21 +754,29 @@ def generate_daily_maps(start_date, unidade_id=None, output_dir="mapas_gerados")
     mask_ignorar = df_salas_unid['local'].astype(str).str.upper().apply(lambda x: any(ign in x for ign in salas_ignorar_contagem))
     total_salas_fisicas = df_salas_unid[~mask_ignorar]['local'].nunique()
     
+    # --- CÁLCULO DE OCUPAÇÃO ---
     salas_ativas_manha = df_final[df_final['periodo'] == 'Manhã']['sala'].nunique()
     salas_ativas_tarde = df_final[df_final['periodo'] == 'Tarde']['sala'].nunique()
-    salas_ativas_dia = df_final['sala'].nunique()
+    
+    # Nova Lógica: O dia é a soma aritmética dos dois turnos
+    salas_ativas_dia_soma = salas_ativas_manha + salas_ativas_tarde
+    total_capacidade_dia = total_salas_fisicas * 2  # Capacidade Dobrada (Ex: 19 de manhã + 19 de tarde = 38)
 
     def calc_taxa(usadas, total):
         return (usadas / total * 100) if total > 0 else 0
 
     dados_uni['metricas_salas'] = {
-        'total_salas': total_salas_fisicas,
+        'total_salas': total_salas_fisicas,      # Ex: 19
+        'total_salas_dia': total_capacidade_dia, # Ex: 38 (Use isso no HTML se quiser mostrar o denominador dobrado)
+        
         'ativas_manha': salas_ativas_manha,
         'taxa_manha': calc_taxa(salas_ativas_manha, total_salas_fisicas),
+        
         'ativas_tarde': salas_ativas_tarde,
         'taxa_tarde': calc_taxa(salas_ativas_tarde, total_salas_fisicas),
-        'ativas_dia': salas_ativas_dia,
-        'taxa_dia': calc_taxa(salas_ativas_dia, total_salas_fisicas)
+        
+        'ativas_dia': salas_ativas_dia_soma,     # Agora é a soma (Ex: 12 + 14 = 26)
+        'taxa_dia': calc_taxa(salas_ativas_dia_soma, total_capacidade_dia)
     }
 
     unidade_chave = unidade_id if unidade_id else "Geral"
