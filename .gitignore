@@ -6,3 +6,4 @@ gerar_mapa_mensal.py
 .streamlit/secrets.toml
 token.json
 credentials.json
+secrets_users.toml
