@@ -1,9 +1,13 @@
-import json
-import bcrypt
-import streamlit as st
+﻿import json
+import os
+import tomllib
 from pathlib import Path
 
+import bcrypt
+import streamlit as st
+
 USERS_FILE = Path(__file__).resolve().parent.parent / "auth" / "users.json"
+
 
 def load_users():
     if not USERS_FILE.exists():
@@ -12,32 +16,58 @@ def load_users():
         return json.load(f)
 
 
+def _load_users_from_env():
+    raw_toml = os.getenv("STREAMLIT_USERS_TOML", "").strip()
+    if raw_toml:
+        try:
+            parsed = tomllib.loads(raw_toml)
+            users = parsed.get("users")
+            if isinstance(users, dict):
+                return users
+        except Exception:
+            pass
+
+    raw_json = os.getenv("STREAMLIT_USERS_JSON", "").strip()
+    if raw_json:
+        try:
+            parsed = json.loads(raw_json)
+            if isinstance(parsed, dict):
+                if "users" in parsed and isinstance(parsed.get("users"), dict):
+                    return parsed["users"]
+                return parsed
+        except Exception:
+            pass
+
+    return None
+
+
 def authenticate(username, password):
     """
-    Autentica o usuário usando st.secrets em vez de users.json
+    Authenticates using st.secrets first, then optional environment fallbacks.
+    Always returns a 3-item tuple: (ok, role, name).
     """
     users_db = st.secrets.get("users")
+    if not users_db:
+        users_db = _load_users_from_env()
 
     if not users_db:
-        st.error("Erro de configuração: Banco de usuários não encontrado nos Secrets.")
-        return False, None
+        st.error("Erro de configuracao: banco de usuarios nao encontrado.")
+        return False, None, None
 
-    # Verifica se o usuário existe
     if username in users_db:
         user_data = users_db[username]
         stored_password = user_data["password"]
         role = user_data["role"]
         name = user_data["name"]
 
-        # COMPARAÇÃO DE SENHA      
-        if bcrypt.checkpw(password.encode('utf-8'), stored_password.encode('utf-8')):
+        if bcrypt.checkpw(password.encode("utf-8"), stored_password.encode("utf-8")):
             return True, role, name
 
-    return False, None
+    return False, None, None
 
 
 def create_user(username, password, role="user"):
-    """Cria usuário com senha criptografada (use na página de gestão)."""
+    """Creates user with hashed password in local users file."""
     users = load_users()
 
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()

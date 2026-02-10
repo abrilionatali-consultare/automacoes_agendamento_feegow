@@ -14,7 +14,15 @@ def login_page():
     password = st.text_input("Senha", type="password")
 
     if st.button("Entrar"):
-        ok, role, name = authenticate(username, password)
+        auth_result = authenticate(username, password)
+        # Backward-compatible unpack in case older auth returns 2-tuple.
+        if isinstance(auth_result, tuple) and len(auth_result) == 3:
+            ok, role, name = auth_result
+        elif isinstance(auth_result, tuple) and len(auth_result) == 2:
+            ok, role = auth_result
+            name = None
+        else:
+            ok, role, name = False, None, None
 
         if ok:
             # Salva nos cookies
@@ -34,3 +42,4 @@ def login_page():
             st.rerun()
         else:
             st.error("Usuário ou senha incorretos.")
+
