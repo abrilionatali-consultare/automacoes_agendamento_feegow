@@ -134,28 +134,34 @@ class GoogleDriveUploader:
         return current_parent
 
     def _upsert_pdf(self, *, parent_id: str, filename: str, file_bytes: bytes) -> dict:
-        existing_id = self._find_file_id(
+        matches = self._find_files(
             parent_id=parent_id,
             file_name=filename,
             mime_type="application/pdf",
         )
+        canonical = matches[0] if matches else None
+        duplicate_ids = [item["id"] for item in matches[1:]]
+
         media = MediaIoBaseUpload(
             io.BytesIO(file_bytes),
             mimetype="application/pdf",
             resumable=False,
         )
 
-        if existing_id:
-            return (
+        if canonical:
+            updated = (
                 self.service.files()
                 .update(
-                    fileId=existing_id,
+                    fileId=canonical["id"],
                     media_body=media,
                     fields="id,name,webViewLink,webContentLink",
                     supportsAllDrives=True,
                 )
                 .execute()
             )
+            if duplicate_ids:
+                self._delete_files(duplicate_ids)
+            return updated
 
         metadata = {
             "name": filename,
@@ -174,13 +180,15 @@ class GoogleDriveUploader:
         )
 
     def _ensure_folder(self, *, parent_id: str, folder_name: str) -> str:
-        existing_id = self._find_file_id(
+        matches = self._find_files(
             parent_id=parent_id,
             file_name=folder_name,
             mime_type=FOLDER_MIME_TYPE,
         )
-        if existing_id:
-            return existing_id
+        if matches:
+            # Keep deterministic folder selection to avoid path drift when
+            # legacy duplicates exist.
+            return matches[0]["id"]
 
         created = (
             self.service.files()
@@ -198,6 +206,24 @@ class GoogleDriveUploader:
         return created["id"]
 
     def _find_file_id(self, *, parent_id: str, file_name: str, mime_type: str) -> str | None:
+        matches = self._find_files(
+            parent_id=parent_id,
+            file_name=file_name,
+            mime_type=mime_type,
+            page_size=1,
+        )
+        if not matches:
+            return None
+        return matches[0]["id"]
+
+    def _find_files(
+        self,
+        *,
+        parent_id: str,
+        file_name: str,
+        mime_type: str,
+        page_size: int = 100,
+    ) -> list[dict]:
         query = (
             f"'{parent_id}' in parents and "
             f"name = '{_escape_query_value(file_name)}' and "
@@ -207,17 +233,27 @@ class GoogleDriveUploader:
             self.service.files()
             .list(
                 q=query,
-                fields="files(id,name)",
-                pageSize=1,
+                fields="files(id,name,createdTime,modifiedTime)",
+                pageSize=page_size,
+                orderBy="createdTime asc",
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
             )
             .execute()
         )
-        files = response.get("files", [])
-        if not files:
-            return None
-        return files[0]["id"]
+        return response.get("files", [])
+
+    def _delete_files(self, file_ids: list[str]) -> None:
+        for file_id in file_ids:
+            try:
+                (
+                    self.service.files()
+                    .delete(fileId=file_id, supportsAllDrives=True)
+                    .execute()
+                )
+            except Exception:
+                # Best-effort cleanup. Canonical file is already updated.
+                pass
 
 
 def _resolve_auth_files() -> tuple[Path, Path]:

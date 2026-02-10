@@ -5,6 +5,7 @@ from pathlib import Path
 
 import bcrypt
 import streamlit as st
+from core.secrets_utils import get_secret
 
 USERS_FILE = Path(__file__).resolve().parent.parent / "auth" / "users.json"
 
@@ -46,7 +47,7 @@ def authenticate(username, password):
     Authenticates using st.secrets first, then optional environment fallbacks.
     Always returns a 3-item tuple: (ok, role, name).
     """
-    users_db = st.secrets.get("users")
+    users_db = get_secret("users")
     if not users_db:
         users_db = _load_users_from_env()
 

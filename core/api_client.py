@@ -11,6 +11,7 @@ from urllib3.util.retry import Retry
 from datetime import datetime, timedelta, time, date
 from dateutil.parser import parse as date_parse
 import streamlit as st
+from core.secrets_utils import get_secret, get_secret_section
 
 # Carrega variáveis de ambiente locais (.env) se existirem
 load_dotenv()
@@ -89,11 +90,11 @@ def build_headers(endpoint_cfg, has_payload=False):
     auth = endpoint_cfg.get("auth", auth_cfg)
     if auth and auth.get("type") == "env_header":
         env_name = auth.get("env_var")
-        token = st.secrets.get(env_name, os.getenv(env_name))
+        token = get_secret(env_name, os.getenv(env_name))
         
         # CORREÇÃO: Acesso seguro ao dicionário aninhado
         if not token:
-            api_sec = st.secrets.get("api", {})
+            api_sec = get_secret_section("api", {})
             token = api_sec.get("token") if isinstance(api_sec, dict) else None
 
         if not token:
@@ -539,3 +540,4 @@ if __name__ == "__main__":
     print("Testando fetch localmente...")
     teste = fetch_agendamentos(start_date='14-06-2025', end_date='14-06-2025')
     print(teste.head())
+

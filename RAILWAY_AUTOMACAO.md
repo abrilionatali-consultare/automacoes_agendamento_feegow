@@ -42,6 +42,7 @@ Gerar mapas diarios automaticamente em 2 horarios (fuso Brasil) e manter disparo
 - Semanal (quando automatizar): `RAIZ_SEMANAL/ANO/MES/DIA/ARQUIVOS.pdf`
 - Mensal (quando automatizar): `RAIZ_MENSAL/ANO/MES/ARQUIVOS.pdf`
 - Nome de arquivo: `MAPA_<TIPO>_<UNIDADE>_<DD-MM-AAAA>.pdf`
+- Politica de salvamento: sobrescreve arquivo existente com mesmo nome na mesma pasta e remove duplicados legados.
 
 As pastas sao criadas automaticamente quando nao existem.
 

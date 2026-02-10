@@ -3,11 +3,15 @@ import os
 from dotenv import load_dotenv
 from streamlit_cookies_manager import EncryptedCookieManager
 from login_page import login_page
+from core.secrets_utils import get_secret
 
 load_dotenv()
 
 # Tenta pegar dos secrets (Cloud), se falhar tenta do OS (Local com .env), se falhar usa string vazia
-COOKIES_SECRET = st.secrets.get("STREAMLIT_COOKIES_MANAGER_SECRET", os.getenv("STREAMLIT_COOKIES_MANAGER_SECRET"))
+COOKIES_SECRET = get_secret(
+    "STREAMLIT_COOKIES_MANAGER_SECRET",
+    os.getenv("STREAMLIT_COOKIES_MANAGER_SECRET"),
+)
 
 st.set_page_config(page_icon='🏠', layout='centered', page_title='Relatório de Agendamentos')
 
