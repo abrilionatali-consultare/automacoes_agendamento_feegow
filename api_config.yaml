@@ -67,3 +67,13 @@ endpoints:
     body_template:
       date_start: "{date_start}"
       date_end: "{date_end}"
+  
+  - name: list-procedures
+    description: "Lista todos os procedimentos cadastrados."
+    url: "https://api.feegow.com/v1/api/procedures/list"
+    method: "GET"
+
+  - name: list-procedure-types
+    description: "Lista os tipos de procedimentos."
+    url: "https://api.feegow.com/v1/api/procedures/types"
+    method: "GET"

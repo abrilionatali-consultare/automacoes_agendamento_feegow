@@ -4,3 +4,5 @@ mapas_gerados/
 generate_users.py
 gerar_mapa_mensal.py
 .streamlit/secrets.toml
+token.json
+credentials.json

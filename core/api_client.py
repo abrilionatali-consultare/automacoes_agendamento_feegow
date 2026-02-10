@@ -276,6 +276,18 @@ def list_unidades():
             
     return df
 
+@st.cache_data(ttl=3600) 
+def list_procedures():
+    raw = _call_endpoint("list-procedures")
+    df = _normalize_df(raw, nested_key="content")
+    return df
+
+@st.cache_data(ttl=3600)
+def list_procedure_types():
+    raw = _call_endpoint("list-procedure-types")
+    df = _normalize_df(raw, nested_key="content")
+    return df
+
 #@st.cache_data(ttl=300)
 def list_blocks(unidade_id=None, start_date=None, end_date=None, profissional_id=None):
     """
